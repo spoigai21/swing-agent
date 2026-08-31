@@ -1,0 +1,44 @@
+# --- Agent orchestration ---
+langgraph>=1.0
+langchain>=1.0
+langchain-core>=1.0
+langchain-google-genai>=2.0
+google-genai>=1.0
+
+# --- ML / embeddings (PyTorch only) ---
+torch>=2.4
+transformers>=4.44
+sentence-transformers>=3.0
+lightgbm>=4.3
+scikit-learn>=1.5
+
+# --- Data ---
+numpy>=1.26,<3
+pandas>=2.2
+pyarrow>=16.0
+
+# --- Storage ---
+psycopg[binary]>=3.2
+pgvector>=0.3
+sqlalchemy>=2.0
+alembic>=1.13
+
+# --- Ingestion ---
+finnhub-python>=2.4
+yfinance>=0.2.40
+feedparser>=6.0
+httpx>=0.27
+tenacity>=8.2
+
+# --- Schema / validation ---
+pydantic>=2.7
+pydantic-settings>=2.3
+python-dotenv>=1.0
+pyyaml>=6.0
+
+# --- Dedup ---
+datasketch>=1.6
+
+# --- Dev ---
+pytest>=8.0
+matplotlib>=3.9

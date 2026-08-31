@@ -1,0 +1,617 @@
+# Codebase Plan — Stock Swing Attribution Agent
+
+Derived from `agent-plan.md` + `data-sources.md`. This document is the *engineering* layer: it
+resolves the gaps and conflicts between those two specs, fixes the concrete module boundaries,
+completes the database schema, and defines the build order.
+
+The source docs describe **what** to build and **why**. This describes **where each thing lives**
+and **what its signature is**.
+
+---
+
+# 0 — What this plan resolves
+
+The two specs are strong on rationale but leave nine things undefined that you cannot write code
+without. Each is resolved below and marked ⚑ where it appears in the tree.
+
+| # | Gap in the source docs | Resolution here |
+|---|---|---|
+| G1 | `swings`, `clusters`, `attributions`, `intraday_bars`, `annotations` tables are referenced but never defined (only an `ALTER TABLE attributions` appears, §3.1b) | Full DDL in §3 |
+| G2 | `articles_raw` (Phase −1) and `articles` (§0.4) are two different tables with no defined path between them | Explicit `normalize` stage, §4.3 |
+| G3 | `residual_history` is used for the z-score denominator (§1.2) but nothing says how it is produced | Persisted `daily_factors` table + one vectorized rolling pass, §4.4 |
+| G4 | `cluster_id` is a column on `articles` (implies global clustering) but agglomerative clustering is not incremental | Two-tier: global incremental `dup_group_id` + window-scoped persisted clusters, §4.6 |
+| G5 | Onset detection needs 5-min bars for the stock **and** its sector; no storage or acquisition path defined | `intraday_bars` table + capture-on-detect policy, §4.5 |
+| G6 | Sector ETFs are both *factors* and *entities* (§0.1b) — no stated ordering or reuse | Single `Entity` abstraction, sector-first batch ordering, §4.4 |
+| G7 | Config layout given, but `config_hash` (§3.1b) has no defined input set | `common/versioning.py`, hashes a canonicalised subset, §4.9 |
+| G8 | No process model — what is a daemon, what is a cron job, what is a CLI | §5 |
+| G9 | No test strategy, no migrations dir, despite `alembic` and `pytest` in requirements | §2 tree + §6 |
+
+## 0.1 — Corrections to the source docs
+
+Three factual claims in the specs are worth verifying on day one, because a build depends on each.
+
+**⚠️ C1 — "Finnhub's free tier covers intraday" (agent-plan §1.3) is likely wrong now.**
+Finnhub moved `/stock/candle` (OHLCV candles, incl. intraday resolutions) behind paid plans. Since
+onset detection is one of the two *irrecoverable* mistakes in the plan, do not let it depend on an
+unverified endpoint. **Verify this before Phase 1.** Plan of record: use `yfinance` for 5-minute
+bars (`interval="5m"`, ~60 calendar days of lookback), and persist every swing day's intraday bars
+permanently the moment a swing is detected — the lookback limit then only affects backfill, never
+going forward. This is exactly the mitigation the plan already prescribes in TROUBLESHOOTING
+("store intraday bars for every swing day as you detect it"); it just becomes the primary path
+rather than the fallback.
+
+**⚠️ C2 — Marketaux free tier is thinner than the doc implies.**
+It is roughly 100 requests/day and returns ~3 articles per response. That is a breadth *sampler*,
+not a feed. Keep it (it is genuinely useful as the dedup stress test the doc describes) but do not
+schedule it as if it were a primary source. Priority stays: EDGAR → IR RSS → Finnhub → tier-3 RSS.
+
+**⚠️ C3 — `ivfflat` index in §0.4's DDL contradicts the TROUBLESHOOTING section.**
+The schema block creates the index at table-creation time; TROUBLESHOOTING correctly says that
+produces a useless partition on an empty table. **Use `hnsw` and sidestep the failure mode
+entirely** — it has no build-order dependency and is more forgiving at this scale (tens of
+thousands of rows). The DDL in §3 reflects this.
+
+## 0.2 — Environment findings (probed, not assumed)
+
+| Requirement | Spec | This machine | Action |
+|---|---|---|---|
+| Python | 3.12 | 3.11.9 and 3.13.9 only | Install 3.12 (`uv python install 3.12` is fastest) |
+| PostgreSQL 16 + pgvector | required | **not installed** | Docker: `pgvector/pgvector:pg16` |
+| Docker | — | 28.3.2 ✅ | Use it for Postgres |
+| git repo | — | **not initialised** | `git init` before Phase −1 |
+
+Do not substitute 3.13 for 3.12. The spec's warning about wheel gaps in this dependency set
+(`torch`, `lightgbm`, `psycopg[binary]`, `pyarrow`) is the correct call.
+
+---
+
+# 1 — Architectural shape
+
+Five layers, strictly one-directional. Nothing below reaches upward.
+
+```
+  ┌────────────────────────────────────────────────────────┐
+  │  L5  interface/     CLI, query, alerting, dashboards    │
+  ├────────────────────────────────────────────────────────┤
+  │  L4  agent/         LangGraph StateGraph + Gemini       │
+  ├────────────────────────────────────────────────────────┤
+  │  L3  analysis/      decompose, swings, onset, dedup     │
+  ├────────────────────────────────────────────────────────┤
+  │  L2  store/         SQLAlchemy models + typed queries   │
+  ├────────────────────────────────────────────────────────┤
+  │  L1  ingest/        prices, news, EDGAR, analyst        │
+  └────────────────────────────────────────────────────────┘
+        common/   settings, time, http, versioning, logging
+                  (imported by every layer, imports none)
+```
+
+Two rules that keep this honest:
+
+1. **`analysis/` never calls an LLM and never makes a network request.** It is pure functions over
+   arrays and rows. This is what makes Phase 1 testable and what makes the Phase 4 placebo harness
+   able to replay retrieval without re-fetching.
+2. **`agent/` never touches the network except through the LLM client.** All data arrives as a
+   fully-materialised state dict built by `store/` and `analysis/`. This is what lets the placebo
+   test cache the retrieval side and hit only the LLM on re-runs (§4.3 of the spec).
+
+---
+
+# 2 — Repository tree
+
+Build in-place at `stock-agent-analysis/` (not a nested `swing-agent/` subdir — the specs live here).
+⚑ marks a file that is **not** in the source docs' layout and resolves a gap from §0.
+
+```
+stock-agent-analysis/
+├── agent-plan.md
+├── data-sources.md
+├── CODEBASE-PLAN.md              ← this file
+├── README.md                     ⚑ runbook: how to start/stop the collector, run a batch
+├── pyproject.toml                ⚑ project metadata + tool config (ruff, pytest)
+├── requirements.txt
+├── requirements.lock.txt
+├── .env.example                  ⚑ committed; .env is gitignored
+├── .gitignore                    ⚑
+├── docker-compose.yml            ⚑ postgres 16 + pgvector, the only container
+│
+├── config/
+│   ├── watchlist.yaml            # 12 tickers + 4 sector entities; CIK, IR feed, XBRL tags, min_history_days
+│   ├── sources.yaml              # source → tier, RSS URLs, poll intervals
+│   ├── thresholds.yaml           # z cutoffs, windows, ranking weights, dedup thresholds
+│   └── prompts/                  ⚑ versioned prompt text, one file per version
+│       ├── attribution_v1.md
+│       └── attribution_v2.md
+│
+├── common/                       ⚑ entire package — imported everywhere, imports nothing internal
+│   ├── settings.py               # pydantic-settings; loads .env, validates keys present
+│   ├── timeutil.py               # assert_utc(), market_session(), to_et(), trading_days()
+│   ├── http.py                   # httpx client factory + tenacity policies per provider
+│   ├── versioning.py             # config_hash(), prompt_version(), model_id resolution  (G7)
+│   └── logging.py                # structured logging, one line per ingest/attribution event
+│
+├── store/
+│   ├── schema.sql                # canonical DDL — the source of truth
+│   ├── models.py                 # SQLAlchemy ORM mirroring schema.sql
+│   ├── queries.py                # every read the rest of the system needs, typed
+│   ├── session.py                ⚑ engine/session factory, pgvector registration
+│   └── migrations/               ⚑ alembic (deps list it; the source layout omits it)
+│       ├── env.py
+│       └── versions/
+│
+├── ingest/
+│   ├── collector.py              ⚑ THE PHASE −1 DAEMON. Scheduler loop over all pollers.
+│   ├── prices.py                 # yfinance backfill + Finnhub daily EOD
+│   ├── intraday.py               ⚑ 5-min bars for swing days (stock + sector)          (G5, C1)
+│   ├── news_rss.py               ⚑ feedparser: IR feeds + WSJ/CNBC/MarketWatch
+│   ├── news_finnhub.py           ⚑ company news (split from news.py for testability)
+│   ├── news_marketaux.py         ⚑ breadth sampler, low frequency                       (C2)
+│   ├── analyst.py                ⚑ Finnhub recommendation/price-target → synthetic Tier-2 articles
+│   ├── edgar.py                  # 8-K poller, submissions, companyfacts, CIK map
+│   ├── normalize.py              ⚑ articles_raw → articles: tier, tickers, UTC, embed   (G2)
+│   └── health.py                 ⚑ per-source daily counts + dead-feed alert
+│
+├── analysis/
+│   ├── factors.py                ⚑ rolling beta fit over full history → daily_factors   (G3)
+│   ├── decompose.py              # single-day decomposition (the spec's §1.1)
+│   ├── swings.py                 # z-threshold, drift detector, volume_z, earnings_mode
+│   ├── onset.py                  ⚑ split out of swings.py — it is the critical path     (G5)
+│   ├── windows.py                ⚑ swing_type → (pre_window, post_window)
+│   ├── dedup.py                  # MinHash LSH (global) + semantic clustering (windowed) (G4)
+│   ├── rank.py                   ⚑ the §2.3 scoring function, weights from config
+│   └── novelty.py                # heuristic first; MLP in models/
+│
+├── agent/
+│   ├── graph.py                  # StateGraph wiring
+│   ├── state.py                  ⚑ TypedDict state schema (spec §3.3 mandates TypedDict)
+│   ├── nodes.py                  ⚑ one function per node, each independently testable
+│   ├── schema.py                 # Attribution / AttributionFlat + rehydrate()
+│   ├── abstention.py             ⚑ enforce_abstention() — split out; most important fn in the agent
+│   ├── validate.py               ⚑ validate_citations()
+│   ├── llm.py                    ⚑ provider abstraction (spec §1.1: "one config line" to swap)
+│   └── prompts.py                # loads config/prompts/*.md, records which version was used
+│
+├── models/
+│   ├── train_novelty.py          # MLP vs. relevance-only baseline
+│   ├── train_events.py           # DistilBERT vs. LightGBM+TF-IDF baseline
+│   ├── train_retrieval.py        # bi-encoder contrastive, walk-forward splits
+│   └── splits.py                 ⚑ walk-forward split helper — shared, so no file can shuffle
+│
+├── eval/
+│   ├── annotate.py               # blind + assisted annotation CLI
+│   ├── harness.py                # the five metrics
+│   ├── placebo.py                # 200-case confabulation test
+│   └── cache.py                  ⚑ persisted cluster payloads so re-runs hit only the LLM
+│
+├── interface/                    ⚑ (spec Phase 6 has no home in its own layout)
+│   ├── cli.py                    # single Typer/argparse entrypoint: swing <command>
+│   ├── batch.py                  # daily post-close run
+│   ├── query.py                  # NL over stored attributions
+│   └── alert.py                  # |z| >= 3 push
+│
+├── scripts/                      ⚑ one-shot operational scripts
+│   ├── bootstrap_db.py
+│   ├── backfill_prices.py
+│   ├── discover_xbrl_tags.py     # the §TROUBLESHOOTING tag-discovery routine
+│   └── build_cik_map.py
+│
+└── tests/                        ⚑
+    ├── conftest.py               # in-memory/ephemeral pg fixture, frozen clocks
+    ├── test_decompose.py         # synthetic returns with known betas
+    ├── test_onset.py             # hand-built bar series: gap / intraday / mixed
+    ├── test_windows.py           # boundary conditions on every swing_type
+    ├── test_abstention.py        # the code-level guarantee, exhaustively
+    ├── test_dedup.py
+    ├── test_timeutil.py          # naive datetimes must raise
+    └── fixtures/
+```
+
+**Files split out from the source layout, and why:** `onset.py` (spec's own "irrecoverable mistake
+#2" — it deserves its own file and its own test module), `abstention.py` (spec calls it "the most
+important function in the agent"), `factors.py` (G3), `normalize.py` (G2), `collector.py` (the
+Phase −1 daemon has no home in the source tree), `llm.py` (the spec requires a swappable provider
+but puts the model config inline in `graph.py`).
+
+---
+
+# 3 — Data model
+
+`store/schema.sql` is the source of truth; `models.py` mirrors it. Tables marked ⚑ do not exist in
+the source docs (G1).
+
+### 3.1 Ingest tier
+
+```sql
+-- Phase −1. Write-only, never deleted. The archive of record.
+CREATE TABLE articles_raw (
+  id           bigserial PRIMARY KEY,
+  url          text UNIQUE NOT NULL,
+  source       text NOT NULL,
+  headline     text NOT NULL,
+  summary      text,
+  body         text,
+  published_at timestamptz NOT NULL,
+  retrieved_at timestamptz NOT NULL DEFAULT now(),
+  raw          jsonb,
+  normalized   boolean NOT NULL DEFAULT false   -- ⚑ G2: normalize.py's work queue
+);
+CREATE INDEX ON articles_raw (normalized) WHERE normalized = false;
+CREATE INDEX ON articles_raw (source, published_at);
+```
+
+### 3.2 Price tier
+
+```sql
+CREATE TABLE bars (                       -- unadjusted daily OHLCV
+  ticker text NOT NULL, ts timestamptz NOT NULL,
+  open numeric, high numeric, low numeric, close numeric, volume bigint,
+  PRIMARY KEY (ticker, ts)
+);
+
+CREATE TABLE corporate_actions (
+  ticker text NOT NULL, ex_date date NOT NULL,
+  kind text NOT NULL,                     -- 'split' | 'dividend'
+  ratio numeric, amount numeric,
+  PRIMARY KEY (ticker, ex_date, kind)
+);
+
+-- ⚑ G5/C1. Captured permanently on swing detection; free-tier lookback then
+-- only limits backfill, never forward operation.
+CREATE TABLE intraday_bars (
+  ticker text NOT NULL, ts timestamptz NOT NULL,
+  open numeric, high numeric, low numeric, close numeric, volume bigint,
+  interval_sec int NOT NULL DEFAULT 300,
+  PRIMARY KEY (ticker, ts, interval_sec)
+);
+CREATE INDEX ON intraday_bars (ticker, ts);
+```
+
+### 3.3 Article tier
+
+```sql
+CREATE TABLE articles (
+  id            bigserial PRIMARY KEY,
+  raw_id        bigint REFERENCES articles_raw(id),   -- ⚑ provenance back to the archive
+  url           text UNIQUE NOT NULL,
+  source        text NOT NULL,
+  source_tier   int  NOT NULL CHECK (source_tier BETWEEN 1 AND 4),
+  headline      text NOT NULL,
+  summary       text,
+  body          text,                                  -- nullable by design (spec §0.6)
+  published_at  timestamptz NOT NULL,
+  retrieved_at  timestamptz NOT NULL,
+  tickers       text[] NOT NULL,
+  event_hint    text,                                  -- ⚑ 8-K Item number, e.g. '2.02'
+  embedding     vector(768),                           -- headline + summary ONLY
+  minhash       bytea,
+  dup_group_id  bigint                                 -- ⚑ G4: global, incremental, MinHash-derived
+);
+CREATE INDEX ON articles (published_at);
+CREATE INDEX ON articles USING gin (tickers);
+CREATE INDEX ON articles (dup_group_id);
+-- hnsw, not ivfflat (C3): no build-order dependency, no empty-table failure mode.
+CREATE INDEX articles_embedding_idx ON articles
+  USING hnsw (embedding vector_cosine_ops);
+```
+
+### 3.4 Analysis tier ⚑ (entirely absent from the source docs)
+
+```sql
+-- G3: one row per (ticker, day). Produced by one vectorized rolling pass, so the
+-- z-score denominator in §1.2 is consistent, cheap, and reproducible.
+CREATE TABLE daily_factors (
+  ticker           text NOT NULL,
+  d                date NOT NULL,
+  ret              numeric NOT NULL,
+  alpha            numeric, beta_mkt numeric, beta_sector numeric,
+  r_squared        numeric,                  -- data-sources A.2: the MU/SMH check
+  market_component numeric, sector_component numeric,
+  residual         numeric,
+  residual_vol_60  numeric,                  -- the z denominator, stored not recomputed
+  residual_z       numeric,
+  volume_z         numeric,
+  status           text NOT NULL DEFAULT 'ok',  -- 'ok' | 'insufficient_history' | 'gap_in_bars'
+  PRIMARY KEY (ticker, d)
+);
+
+CREATE TABLE swings (
+  id            bigserial PRIMARY KEY,
+  ticker        text NOT NULL,
+  d             date NOT NULL,
+  kind          text NOT NULL,     -- 'daily' | 'drift'
+  drift_window  int,               -- 3 or 5 for drift, NULL for daily
+  residual      numeric NOT NULL,
+  residual_z    numeric NOT NULL,
+  total_return  numeric NOT NULL,
+  market_component numeric NOT NULL,
+  sector_component numeric NOT NULL,
+  volume_z      numeric,
+  swing_type    text NOT NULL,     -- 'gap' | 'intraday' | 'mixed' | 'drift' | 'unknown'
+  onset_ts      timestamptz,       -- NULL only when swing_type='unknown'
+  onset_source  text,              -- ⚑ 'intraday' | 'fallback_48h' — weaker evidence, flagged
+  earnings_mode boolean NOT NULL DEFAULT false,
+  entity_type   text NOT NULL DEFAULT 'stock',  -- 'stock' | 'sector'   (G6)
+  superseded_by bigint REFERENCES swings(id),   -- ⚑ drift/daily dedup (spec §1.5)
+  created_at    timestamptz NOT NULL DEFAULT now(),
+  UNIQUE (ticker, d, kind, drift_window)
+);
+
+-- G4: window-scoped semantic clusters. Persisted so an attribution's citations
+-- remain resolvable forever, even after thresholds are retuned.
+CREATE TABLE clusters (
+  id                bigserial PRIMARY KEY,
+  swing_id          bigint NOT NULL REFERENCES swings(id) ON DELETE CASCADE,
+  timing            text NOT NULL,      -- 'pre_move' | 'post_move'
+  canonical_article bigint NOT NULL REFERENCES articles(id),
+  member_count      int NOT NULL,
+  distinct_sources  int NOT NULL,       -- the corroboration count
+  earliest_published timestamptz NOT NULL,
+  best_tier         int NOT NULL,
+  semantic_score    numeric, timing_score numeric,
+  novelty_score     numeric, rank_score numeric,
+  rank              int
+);
+CREATE INDEX ON clusters (swing_id, rank);
+
+CREATE TABLE cluster_members (
+  cluster_id bigint NOT NULL REFERENCES clusters(id) ON DELETE CASCADE,
+  article_id bigint NOT NULL REFERENCES articles(id),
+  PRIMARY KEY (cluster_id, article_id)
+);
+```
+
+### 3.5 Output + evaluation tier ⚑
+
+```sql
+CREATE TABLE attributions (
+  id             bigserial PRIMARY KEY,
+  swing_id       bigint NOT NULL REFERENCES swings(id),
+  verdict        text NOT NULL,          -- 'explained'|'partially_explained'|'unexplained'
+  payload        jsonb NOT NULL,         -- the validated Attribution model
+  unexplained_note text,
+  -- spec §3.1b — populated by us, never by the model
+  prompt_version text NOT NULL,
+  model_id       text NOT NULL,
+  config_hash    text NOT NULL,
+  run_kind       text NOT NULL DEFAULT 'production',  -- ⚑ 'production'|'placebo'|'eval'
+  created_at     timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX ON attributions (swing_id, created_at DESC);
+
+CREATE TABLE annotations (               -- ⚑ the asset the whole project rests on (spec §4.1)
+  swing_id         bigint PRIMARY KEY REFERENCES swings(id),
+  blind            boolean NOT NULL,     -- recall@10 computed ONLY over blind=true
+  true_catalyst    text,
+  true_cluster_id  bigint REFERENCES clusters(id),
+  true_event_type  text,
+  no_catalyst      boolean NOT NULL DEFAULT false,
+  annotator_note   text,
+  annotated_at     timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE TABLE source_health (             -- ⚑ spec §6.4 / Phase −1.3 dead-feed alert
+  source text NOT NULL, d date NOT NULL,
+  article_count int NOT NULL,
+  PRIMARY KEY (source, d)
+);
+```
+
+---
+
+# 4 — Module contracts
+
+Signatures, so files can be written in parallel and tested in isolation.
+
+### 4.1 `common/timeutil.py`
+```python
+def assert_utc(ts: datetime) -> datetime            # raises on naive; converts to UTC
+def prev_session_close(ticker: str, d: date) -> datetime
+def session_open(d: date) -> datetime               # 13:30 UTC / 14:30 UTC by DST
+def trading_days(start: date, end: date) -> list[date]
+```
+Called on **every** write and **every** read of a timestamp. This is the guard against the
+"timezone bugs that don't announce themselves" failure mode.
+
+### 4.2 `common/settings.py`
+```python
+class Settings(BaseSettings):
+    finnhub_api_key: str
+    gemini_api_key: str
+    sec_user_agent: str                 # validated to contain '@' — SEC 403 guard
+    marketaux_api_key: str | None = None
+    tiingo_api_key: str | None = None
+    database_url: str
+    attribution_model: str = "google_genai:gemini-flash-latest"
+```
+Fails loudly at import if a required key is missing, rather than at 3am inside a poller.
+
+### 4.3 `ingest/normalize.py` — resolves G2
+```python
+def normalize_batch(limit: int = 256) -> int
+    # articles_raw WHERE normalized=false
+    #  → assign source_tier from config/sources.yaml (drop tier 4 entirely)
+    #  → tag tickers (Finnhub tag, EDGAR CIK, or watchlist keyword match)
+    #  → assert_utc on published_at
+    #  → embed headline + ' ' + summary   (NEVER body — spec §0.6)
+    #  → MinHash → dup_group_id
+    #  → INSERT INTO articles; mark raw row normalized
+```
+Idempotent and re-runnable. Because the archive is never mutated, changing the tier map or the
+embedding model is a full re-run of this stage, not a re-fetch.
+
+### 4.4 `analysis/factors.py` — resolves G3, G6
+```python
+def fit_history(entity: Entity, bars: pd.DataFrame,
+                mkt: pd.DataFrame, sector: pd.DataFrame | None,
+                lookback: int = 120) -> pd.DataFrame
+    # One vectorized rolling pass → one daily_factors row per day.
+    # sector=None for entity_type='sector' (SPY-only regression, spec §0.1b).
+    # Emits status='insufficient_history' when history < min_history_days (SNDK).
+    # Asserts no NaN and complete windows before every fit (spec TROUBLESHOOTING).
+```
+`Entity` is one abstraction over both stocks and sector ETFs, so the sector-first batch ordering
+in §0.1b is a sort key rather than a separate code path.
+
+### 4.5 `analysis/onset.py` — resolves G5, the critical path
+```python
+def locate_onset(stock_bars, sector_bars, prev_close, beta_sector,
+                 beta_mkt, mkt_bars) -> Onset            # (ts, swing_type, source)
+def fallback_onset(d: date) -> Onset                     # swing_type='unknown', 48h window
+```
+Two deviations from the spec's sketch, both deliberate:
+- The spec's `find_onset` neutralises only the sector. Use **both** daily-fit betas intraday
+  (market and sector) so the intraday abnormal return is the same quantity the daily residual is.
+- Return an explicit `source` field so `onset_source='fallback_48h'` rows can be excluded from
+  ranking-weight tuning, as TROUBLESHOOTING requires.
+
+### 4.6 `analysis/dedup.py` — resolves G4
+Two tiers, because agglomerative clustering is not incremental and `articles.cluster_id` as
+written implies it is:
+
+- **Global, incremental:** MinHash LSH at normalize time → `articles.dup_group_id`. Stable, cheap,
+  catches verbatim syndication. Runs once per article, forever.
+- **Window-scoped, at retrieval:** agglomerative clustering over the pre/post windows of one swing
+  → rows in `clusters` + `cluster_members`. Persisted, so a citation stays resolvable even after
+  thresholds are retuned.
+
+```python
+def dup_group_for(article: Article) -> int
+def cluster_window(articles: list[Article], swing_id: int, timing: str,
+                   cosine_threshold: float) -> list[Cluster]
+```
+
+### 4.7 `agent/state.py`
+```python
+class AttributionState(TypedDict):
+    swing: SwingRow
+    decomposition: Decomposition
+    pre_clusters: list[ClusterView]
+    post_clusters: list[ClusterView]
+    raw_output: AttributionFlat | None
+    attribution: Attribution | None
+    verdict_reason: str | None
+    messages: Annotated[list[AnyMessage], add_messages]   # spec §3.3: the reducer is mandatory
+```
+
+### 4.8 `agent/llm.py`
+```python
+def get_attributor() -> Runnable
+    # init_chat_model(settings.attribution_model, temperature=0)
+    # thinking/reasoning budget disabled  (spec §3.4 — abstention recall)
+    # .with_structured_output(AttributionFlat)   ← flat by default (spec §3.1 + TROUBLESHOOTING)
+    # tenacity retry on 429 + deliberate inter-call sleep
+```
+**Build flat-first.** The spec says test nesting and flatten if it fails; the flat schema costs
+five lines of `rehydrate()` and removes an entire class of failure. Do not discover this in Phase 4.
+
+### 4.9 `common/versioning.py` — resolves G7
+```python
+def config_hash() -> str      # sha256 over canonicalised thresholds.yaml + sources.yaml
+                              # + watchlist.yaml + active ranking weights
+def prompt_version() -> str   # filename stem of the active config/prompts/*.md
+def model_id() -> str         # the resolved model string actually used, not the alias
+```
+Computed at runtime from the files themselves (spec §3.1b: "not by hand").
+
+---
+
+# 5 — Process model — resolves G8
+
+Four things run, on different clocks. Keeping them separate is what lets the collector stay up
+while everything else is rebuilt.
+
+| Process | Cadence | Entrypoint | Notes |
+|---|---|---|---|
+| **Collector daemon** | continuous | `ingest/collector.py` | EDGAR 10 min · IR RSS 10 min · tier-3 RSS 15 min · Finnhub news daily · Marketaux 2×/day. **Starts day one and never stops.** |
+| **Normalizer** | every 5 min | `swing normalize` | Drains `articles_raw`. Decoupled so an embedding-model change is a replay. |
+| **Daily batch** | post-close | `swing batch --date` | prices → factors → swings → **sectors first**, then stocks → intraday capture → cluster → attribute → persist. |
+| **Health check** | daily 09:00 | `swing health` | Per-source counts; alert on any source at 0 for 24h. |
+
+Everything is reachable through one CLI so there is a single operational surface:
+
+```
+swing collect                      # run the daemon in the foreground
+swing normalize [--limit N]
+swing backfill prices [--years 2]
+swing batch [--date YYYY-MM-DD] [--dry-run]
+swing annotate [--blind]
+swing eval placebo [--n 30|200]
+swing query "why did NVDA move last Tuesday?"
+swing health
+```
+
+---
+
+# 6 — Build sequence
+
+Ordered by the spec's gates. Each step lands as one commit with its tests.
+
+### Step 0 — Day one, before any application code (≈2 hours)
+This is the spec's irrecoverable mistake #1 and it costs one afternoon.
+
+1. `git init`; install Python 3.12; `docker compose up -d` Postgres 16 + pgvector
+2. `.env` from `.env.example`; Finnhub + Gemini keys; `SEC_USER_AGENT` with a real email
+3. `articles_raw` table only — nothing else
+4. `common/settings.py`, `common/timeutil.py`, `common/http.py`
+5. `ingest/edgar.py` (8-K poller, CIK map from `company_tickers.json`, zero-padded to 10)
+6. `ingest/news_rss.py` (12 IR feeds + WSJ/CNBC/MarketWatch)
+7. `ingest/collector.py` + `ingest/health.py`; **start it and leave it running**
+
+**Gate −1: rows accumulating in `articles_raw`, per-source counts visible.**
+Everything below happens while this runs.
+
+### Step 1 — Foundation (days 2–3)
+Full `schema.sql`, `models.py`, `session.py`, alembic baseline · `store/queries.py` ·
+`scripts/build_cik_map.py`, `scripts/discover_xbrl_tags.py` · all three config files ·
+`tests/test_timeutil.py`. **Verify C1 here** — probe Finnhub's candle endpoint and confirm
+whether yfinance 5m is the intraday path, before anything depends on it.
+
+### Step 2 — Prices + normalization (days 3–5)
+`ingest/prices.py` backfill (17 symbols × 2y) · `ingest/normalize.py` + first embeddings ·
+`ingest/news_finnhub.py`, `analyst.py`, `news_marketaux.py`.
+Verify SNDK starts **2025-02-24** and is not spliced with pre-2016 SanDisk.
+**Gate 0: 2y of bars, zero missing trading days; per-source daily counts printing.**
+
+### Step 3 — The analysis core (days 5–9) — *the highest-leverage work*
+`factors.py` → `decompose.py` → `swings.py` → **`onset.py`** → `windows.py` ·
+`ingest/intraday.py` · matplotlib residual-z plots for 5 tickers × 6 months ·
+`tests/test_decompose.py`, `test_onset.py`, `test_windows.py`.
+Check per-ticker R² and decide whether MU/SNDK need a second memory factor (data-sources A.2).
+**Gate 1: every flagged spike looks like a real event; `onset_ts` verified by hand on 10 swings.**
+
+### Step 4 — Retrieval (days 9–12)
+`dedup.py` (both tiers) · `rank.py` · `novelty.py` heuristic · read the 20 largest clusters and
+tune the MinHash/cosine thresholds **on real accumulated copy**, not synthetic tests.
+**Gate 2: recall@10 ≥ 0.80 on the blind annotation subset.**
+⚠️ Start the ≥30 blind annotations *now*, before tuning weights, so you are not anchored.
+
+### Step 5 — The agent (days 12–15)
+`schema.py` flat-first + `rehydrate()` · `llm.py` · `abstention.py` (+ exhaustive tests) ·
+`validate.py` · `nodes.py` → `graph.py` · `prompts/attribution_v1.md`.
+**Gate 3: 5/5 synthetic no-news cases return `unexplained`.**
+
+### Step 6 — Evaluation (days 15–18)
+`eval/annotate.py` (blind mode must not reveal clusters before commit) · `harness.py` ·
+`placebo.py` + `cache.py`. Iterate on the 30-case smoke set; spend the full 200 once.
+**Gate 4: confabulation < 10%, citation validity exactly 1.00.**
+
+### Step 7 — ML (only after Gate 4)
+Baselines first, every time: relevance-only, then LightGBM+TF-IDF, then the off-the-shelf encoder.
+`models/splits.py` is shared so no training script can accidentally shuffle a time series.
+**Gate 5: each component beats its baseline on a walk-forward split, or it does not ship.**
+
+### Step 8 — Interface (days 22+)
+`interface/batch.py`, `query.py`, `alert.py`, `cli.py`; unexplained-rate-by-ticker and
+by-swing_type dashboards.
+
+---
+
+# 7 — Decisions still open
+
+| # | Decision | Recommendation |
+|---|---|---|
+| D1 | Build in-place vs. nested `swing-agent/` subdir | **In-place** — the specs already live here |
+| D2 | Postgres via Docker vs. local install | **Docker** (`pgvector/pgvector:pg16`) — nothing is installed locally, and this pins the pgvector version |
+| D3 | Python 3.12 via `uv` / `pyenv` / `brew` | **`uv`** — fastest, and handles both the interpreter and the lockfile |
+| D4 | Contact email for `SEC_USER_AGENT` | Needed before the EDGAR poller can run at all |
+| D5 | Where the dead-feed alert goes (email / macOS notification / log-only) | **Log + macOS notification** to start; email needs SMTP config |
+| D6 | Second memory factor for MU/SNDK | **Defer** to after Gate 1, as data-sources A.2 prescribes — decide on measured R² |

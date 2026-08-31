@@ -1,0 +1,77 @@
+# Source -> tier mapping and poll cadence. agent-plan.md §0.5, data-sources.md C.3.
+#
+# Tier 1: SEC filings + company IR press releases  -> primary evidence
+# Tier 2: Reuters/AP/Bloomberg wire (arrives via Finnhub/Marketaux, Phase 0)
+# Tier 3: WSJ, CNBC, MarketWatch, trade press      -> analysis and framing
+# Tier 4: aggregators, content farms               -> EXCLUDED, never ingested
+#
+# `verified` records a live probe on 2026-08-30: 200 + parseable items.
+# `enabled: false` entries are blocked by a WAF (persistent 403 challenge page)
+# or return no feed. They are kept, not deleted, so they can be revisited.
+# EDGAR 8-K covers every one of these companies at Tier 1 regardless, so a
+# blocked IR feed costs redundancy, not coverage.
+
+edgar:
+  tier: 1
+  poll_seconds: 600            # every 10 min, 12 CIKs
+  submissions_url: "https://data.sec.gov/submissions/CIK{cik}.json"
+  forms: ["8-K", "8-K/A", "6-K", "10-Q", "10-K"]
+
+feeds:
+  # ---------- Tier 1: company IR / newsroom ----------
+  - {id: nvda_ir,  source: nvidia-ir,    tier: 1, tickers: [NVDA],  poll_seconds: 600,
+     url: "https://nvidianews.nvidia.com/releases.xml", verified: true}
+  - {id: aapl_ir,  source: apple-ir,     tier: 1, tickers: [AAPL],  poll_seconds: 600,
+     url: "https://www.apple.com/newsroom/rss-feed.rss", verified: true}
+  - {id: avgo_ir,  source: broadcom-ir,  tier: 1, tickers: [AVGO],  poll_seconds: 600,
+     url: "https://investors.broadcom.com/rss/news-releases.xml", verified: true}
+  - {id: sndk_ir,  source: sandisk-ir,   tier: 1, tickers: [SNDK],  poll_seconds: 600,
+     url: "https://investor.sandisk.com/rss/news-releases.xml", verified: true}
+  - {id: ttwo_ir,  source: taketwo-ir,   tier: 1, tickers: [TTWO],  poll_seconds: 600,
+     url: "https://ir.take2games.com/rss/news-releases.xml", verified: true}
+  - {id: nflx_ir,  source: netflix-ir,   tier: 1, tickers: [NFLX],  poll_seconds: 600,
+     url: "https://ir.netflix.net/rss/PressRelease.aspx?IssueID=0", verified: true}
+
+  # ---------- Tier 1, blocked: revisit ----------
+  - {id: mu_ir,    source: micron-ir,    tier: 1, tickers: [MU],    poll_seconds: 600,
+     url: "https://investors.micron.com/rss/news-releases.xml",
+     enabled: false, block: "403 WAF challenge"}
+  - {id: qcom_ir,  source: qualcomm-ir,  tier: 1, tickers: [QCOM],  poll_seconds: 600,
+     url: "https://investor.qualcomm.com/rss/news-releases.xml",
+     enabled: false, block: "403 WAF challenge"}
+  - {id: sbux_ir,  source: starbucks-ir, tier: 1, tickers: [SBUX],  poll_seconds: 600,
+     url: "https://investor.starbucks.com/rss/news-releases.xml",
+     enabled: false, block: "403 WAF challenge"}
+  - {id: googl_ir, source: alphabet-ir,  tier: 1, tickers: [GOOGL], poll_seconds: 600,
+     url: "https://abc.xyz/investor/news/rss/",
+     enabled: false, block: "403 WAF challenge"}
+  - {id: mrvl_ir,  source: marvell-ir,   tier: 1, tickers: [MRVL],  poll_seconds: 600,
+     url: "https://investor.marvell.com/rss/news-releases.xml",
+     enabled: false, block: "404 - SPA, no feed at this path"}
+  - {id: tsla_ir,  source: tesla-ir,     tier: 1, tickers: [TSLA],  poll_seconds: 600,
+     url: "https://ir.tesla.com/rss/news-releases.xml",
+     enabled: false, block: "404 - SPA, no feed at this path"}
+
+  # ---------- Tier 3: company blog (company-controlled but not IR) ----------
+  - {id: googl_blog, source: google-blog, tier: 3, tickers: [GOOGL], poll_seconds: 900,
+     url: "https://blog.google/rss/", verified: true}
+
+  # ---------- Tier 3: market press ----------
+  - {id: wsj_markets,  source: wsj,         tier: 3, tickers: [], poll_seconds: 900,
+     url: "https://feeds.content.dowjones.io/public/rss/RSSMarketsMain", verified: true}
+  - {id: wsj_tech,     source: wsj,         tier: 3, tickers: [], poll_seconds: 900,
+     url: "https://feeds.content.dowjones.io/public/rss/RSSWSJD", verified: true}
+  - {id: wsj_business, source: wsj,         tier: 3, tickers: [], poll_seconds: 900,
+     url: "https://feeds.content.dowjones.io/public/rss/WSJcomUSBusiness", verified: true}
+  - {id: mw_realtime,  source: marketwatch, tier: 3, tickers: [], poll_seconds: 900,
+     url: "https://feeds.content.dowjones.io/public/rss/mw_realtimeheadlines", verified: true}
+  - {id: mw_pulse,     source: marketwatch, tier: 3, tickers: [], poll_seconds: 900,
+     url: "https://feeds.content.dowjones.io/public/rss/mw_marketpulse", verified: true}
+  - {id: mw_top,       source: marketwatch, tier: 3, tickers: [], poll_seconds: 900,
+     url: "https://feeds.content.dowjones.io/public/rss/mw_topstories", verified: true}
+  - {id: cnbc_markets, source: cnbc,        tier: 3, tickers: [], poll_seconds: 900,
+     url: "https://search.cnbc.com/rs/search/combinedcms/view.xml?partnerId=wrss01&id=20910258", verified: true}
+  - {id: cnbc_tech,    source: cnbc,        tier: 3, tickers: [], poll_seconds: 900,
+     url: "https://search.cnbc.com/rs/search/combinedcms/view.xml?partnerId=wrss01&id=19854910", verified: true}
+  - {id: cnbc_earnings, source: cnbc,       tier: 3, tickers: [], poll_seconds: 900,
+     url: "https://search.cnbc.com/rs/search/combinedcms/view.xml?partnerId=wrss01&id=15839135", verified: true}

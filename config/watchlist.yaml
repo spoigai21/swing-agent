@@ -1,0 +1,38 @@
+# Watchlist. 12 stocks + 4 sector entities + SPY = 17 symbols to ingest.
+# CIKs fetched from https://www.sec.gov/files/company_tickers.json on 2026-08-30
+# and zero-padded to 10 digits (data-sources.md D.2 rule 3 / D.3).
+# Verified: SNDK resolves to CIK 0002023554 "Sandisk Corp" — the post-spin entity,
+# NOT the pre-2016 SanDisk acquired by Western Digital.
+
+defaults:
+  market_etf: SPY
+  min_history_days: 400        # below this, emit insufficient_history, never a bad residual
+
+stocks:
+  NVDA:  {name: NVIDIA Corp,               cik: "0001045810", sector_etf: SMH}
+  MRVL:  {name: Marvell Technology,        cik: "0001835632", sector_etf: SMH}
+  MU:    {name: Micron Technology,         cik: "0000723125", sector_etf: SMH}
+  SNDK:  {name: Sandisk Corp,              cik: "0002023554", sector_etf: SMH,
+          history_starts: "2025-02-24",
+          notes: "Spun off from WDC 2025-02-24. Excluded from Phase 1 gate set.
+                  Verify backfill does not splice pre-2016 SanDisk."}
+  AVGO:  {name: Broadcom Inc,              cik: "0001730168", sector_etf: SMH}
+  QCOM:  {name: QUALCOMM Inc,              cik: "0000804328", sector_etf: SMH}
+  AAPL:  {name: Apple Inc,                 cik: "0000320193", sector_etf: XLK}
+  GOOGL: {name: Alphabet Inc,              cik: "0001652044", sector_etf: XLC}
+  NFLX:  {name: Netflix Inc,               cik: "0001065280", sector_etf: XLC}
+  TTWO:  {name: Take-Two Interactive,      cik: "0000946581", sector_etf: XLC}
+  TSLA:  {name: Tesla Inc,                 cik: "0001318605", sector_etf: XLY}
+  SBUX:  {name: Starbucks Corp,            cik: "0000829224", sector_etf: XLY}
+
+# agent-plan.md §0.1b — sector ETFs are first-class attribution entities, regressed
+# on SPY alone. The daily batch runs these FIRST so stock attributions can
+# reference an already-computed sector story.
+sectors:
+  SMH: {name: VanEck Semiconductor ETF,        sector_etf: null, entity_type: sector}
+  XLK: {name: Technology Select Sector SPDR,   sector_etf: null, entity_type: sector}
+  XLC: {name: Communication Services SPDR,     sector_etf: null, entity_type: sector}
+  XLY: {name: Consumer Discretionary SPDR,     sector_etf: null, entity_type: sector}
+
+market:
+  SPY: {name: SPDR S&P 500 ETF}
