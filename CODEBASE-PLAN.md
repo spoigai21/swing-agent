@@ -615,3 +615,108 @@ by-swing_type dashboards.
 | D4 | Contact email for `SEC_USER_AGENT` | Needed before the EDGAR poller can run at all |
 | D5 | Where the dead-feed alert goes (email / macOS notification / log-only) | **Log + macOS notification** to start; email needs SMTP config |
 | D6 | Second memory factor for MU/SNDK | **Defer** to after Gate 1, as data-sources A.2 prescribes — decide on measured R² |
+
+---
+
+# 8 — Reconciling `swing-cli.md`
+
+`swing-cli.md` specifies the command surface. It is compatible with this plan
+with **one structural change**, which is much cheaper now (15 files) than later.
+
+## 8.1 ⚑ The package-layout change — do this before Step 1
+
+`swing-cli.md` Part 2 requires an installable package with a
+`[project.scripts]` entry point. The current repo is a set of flat top-level
+directories (`common/`, `ingest/`, `store/`, `analysis/`, `agent/`). Those work
+only because `sys.path` happens to include the repo root. **Once pipx installs
+this globally, `import common` and `import agent` become top-level names on the
+user's system** — `common` in particular is highly collision-prone, and
+`agent` is the exact failure `swing-cli.md`'s own troubleshooting section
+anticipates (`ModuleNotFoundError: agent`).
+
+Fix: one `src/`-layout package, everything under it.
+
+```
+stock-agent-analysis/
+├── pyproject.toml                  # [project.scripts] swing = "swing.cli:main"
+└── src/swing/
+    ├── __init__.py
+    ├── cli.py                      # dispatcher + REPL   (swing-cli.md Parts 5, 6)
+    ├── commands.py                 # one function per subcommand
+    ├── paths.py                    # SWING_HOME override  (swing-cli.md Part 4)
+    ├── common/     settings, timeutil, http, logging, versioning
+    ├── store/      schema.sql, models, session, queries, raw
+    ├── ingest/     collector, edgar, news_rss, prices, normalize, health, ...
+    ├── analysis/   factors, decompose, swings, onset, windows, dedup, rank
+    ├── agent/      graph, state, nodes, schema, abstention, validate, llm
+    ├── models/     train_*
+    └── eval/       annotate, harness, placebo, cache
+```
+
+`swing-cli.md` puts `cli.py` inside `agent/`. Keep them separate: `agent/` is the
+LangGraph attribution agent (§1 layer L4) and the CLI is layer L5. A CLI that
+lives inside the agent package makes `swing coverage` — pure SQL, no LLM —
+import the LangChain stack, which breaks the doc's own 300 ms startup target.
+
+**Already satisfied:** Part 4's working-directory problem. `common/settings.py`
+anchors on `REPO_ROOT` from `__file__` and pydantic-settings loads `.env` by
+absolute path. Verified working from `~`. Only the `SWING_HOME` env override
+still needs adding.
+
+## 8.2 Command surface → module map
+
+| Command | LLM | Backed by | Available after |
+|---|---|---|---|
+| `swing coverage` | No | `store/queries.py` | **now** (Step 0) |
+| `swing collect` | No | `ingest/collector.py --once` | **now** (Step 0) |
+| `swing health` | No | `ingest/health.py` | **now** (Step 0) |
+| `swing why <T>` | No | `swings` + `attributions` | Step 5 |
+| `swing stats <T>` | No | `daily_factors` + `swings` | Step 3 |
+| `swing compare` | No | `daily_factors.r_squared` | Step 3 |
+| `swing unexplained` | No | `attributions.verdict` | Step 5 |
+| `swing ask` | **Yes** | insight agent | Step 5+ |
+| `swing batch` | **Yes** | `interface/batch.py` | Step 5 |
+
+Three commands are buildable today against `articles_raw`. The rest need tables
+that do not exist yet — build the CLI skeleton early (it is the Step 4 gate in
+`swing-cli.md`) but expect most subcommands to be stubs until Step 3–5.
+
+## 8.3 ⚠️ Unresolved: `insight-agent-guide.md` does not exist
+
+`swing-cli.md` cites it for the tool definitions, the guardrails, the
+no-conversation-memory rationale, and the forecast refusal. It is not in the
+repo, and these depend on it:
+
+- `swing ask` — its whole tool surface
+- `swing compare` — `idio_share`, a metric defined in neither existing spec
+- `swing stats` — the `n`/small-sample warnings
+- **The forecast guardrail** — `swing ask "is NVDA a buy?"` must refuse *before*
+  calling Gemini. `agent-plan.md` says the system is not a predictor but
+  specifies no refusal mechanism. This is new scope.
+
+`idio_share` is presumably `|residual| / |total_return|` — the share of the move
+that is idiosyncratic, computable from `daily_factors`. Confirm before building.
+
+## 8.4 `swing collect` vs. the daemon
+
+`swing-cli.md`'s cron form (`*/10 * * * * swing collect`) and the running daemon
+are alternatives, not complements — running both double-polls every source.
+
+Keep the daemon as primary; `swing collect` maps to `collector.py --once` for
+manual/backfill use. **Note that cron does not solve the sleep problem** (§8.5):
+a cron job does not fire while the machine is asleep either.
+
+## 8.5 ⚠️ Operational: this Mac sleeps after 1 minute
+
+`pmset` reports `sleep 1` and `powernap 0` on battery. `time.monotonic()` freezes
+across macOS sleep, so the collector stops polling entirely — observed directly:
+one poll, then 61 minutes with zero CPU accrued and no polls.
+
+Current mitigation: the collector runs under `caffeinate -is`, which holds
+`PreventUserIdleSystemSleep`. Verified cycling across a 9-minute idle window.
+
+This is a workaround, not a fix. It keeps the Mac awake (battery cost) and does
+not survive a lid close or reboot. For a component whose entire premise is
+continuous collection, the real answer is an always-on host — a $5 VPS or a
+Raspberry Pi — with Postgres and the collector on it. Everything else in this
+system is a batch job that can run anywhere; only the collector must never stop.
