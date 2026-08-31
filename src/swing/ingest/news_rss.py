@@ -71,7 +71,7 @@ def poll_feed(spec: FeedSpec) -> int:
     """Fetch one feed and store new entries. Returns count actually new."""
     try:
         resp = feed_get(spec.url)
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001
         logger.warning("%s: fetch failed: %s", spec.id, exc)
         bump_health(spec.source, 0)
         return 0

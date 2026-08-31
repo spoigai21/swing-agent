@@ -14,7 +14,7 @@ from psycopg.rows import dict_row
 
 from swing.common.settings import get_settings
 
-SCHEMA_PHASE_MINUS1 = Path(__file__).parent / "schema_phase_minus1.sql"
+SCHEMA = Path(__file__).parent / "schema.sql"
 
 
 def dsn() -> str:
@@ -30,6 +30,6 @@ def connect(autocommit: bool = True):
 
 
 def apply_schema() -> None:
-    sql = SCHEMA_PHASE_MINUS1.read_text()
+    sql = SCHEMA.read_text()
     with connect() as conn:
         conn.execute(sql)  # type: ignore[arg-type]

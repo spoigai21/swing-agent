@@ -132,12 +132,12 @@ def repl() -> int:
                 commands.why(line.upper(), None)
             else:
                 commands.ask(line)
-        except Exception as e:  # a bad query must not kill the session
+        except Exception as e:  # noqa: BLE001 - a bad query must not kill the REPL  # noqa: BLE001
             print(f"error: {e}", file=sys.stderr)
 
 
 def _slash(line: str, commands) -> str | None:
-    cmd, *rest = line[1:].split()
+    cmd, *_rest = line[1:].split()
     match cmd:
         case "help":
             print(HELP_TEXT)
@@ -165,7 +165,7 @@ def main() -> int:
     except NotImplementedError as e:
         print(f"not built yet: {e}", file=sys.stderr)
         return 2
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 - report cleanly, never traceback at the user
         print(f"error: {e}", file=sys.stderr)
         return 1
 

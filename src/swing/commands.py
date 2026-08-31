@@ -9,7 +9,6 @@ from typing import Any
 
 from swing.store.session import connect
 
-
 # --------------------------------------------------------------------------
 # Available now (Step 0) — these run against articles_raw
 # --------------------------------------------------------------------------

@@ -1,0 +1,58 @@
+# Detection, retrieval and ranking parameters. Every number the pipeline keys
+# off lives here, so config_hash() (agent-plan.md 3.1b) can fingerprint the
+# system version that produced any given attribution.
+
+decomposition:
+  lookback_days: 120          # trailing window for the beta fit
+  vol_window: 60              # trailing window for the residual z denominator
+  min_history_days: 400       # below this -> status='insufficient_history'
+
+swings:
+  z_threshold: 2.0            # |residual_z| for a single-day swing
+  drift_z_threshold: 2.5      # higher bar: cumulative abnormal return
+  drift_windows: [3, 5]
+  alert_z: 3.0                # push alert threshold
+  volume_flow_z: 2.0          # above this, an unexplained move reads as a flow event
+  volume_thin_z: -1.0         # below this, thin liquidity
+
+onset:
+  bar_interval_sec: 300
+  gap_dominant_ratio: 0.7     # |gap_ar| > 0.7*|car| -> 'gap'
+  gap_mixed_ratio: 0.3        # |gap_ar| > 0.3*|car| -> 'mixed'
+  # yfinance serves 5m bars for the last 60 days only (verified 2026-08-31:
+  # period=2mo is rejected outright). Older swings get swing_type='unknown'
+  # and the fallback window below, and are flagged as weaker evidence.
+  max_backfill_days: 60
+  fallback_window_hours: 48
+
+windows:
+  # Pre-move (candidate catalyst) windows by swing_type. agent-plan.md 2.1.
+  intraday_pre_hours: 24
+  post_move_hours: 24
+  drift_pre_buffer_hours: 24
+
+dedup:
+  minhash_jaccard: 0.9        # cheap pass: near-verbatim reprints
+  minhash_num_perm: 128
+  semantic_cosine: 0.90       # semantic pass: rewrites of the same story
+  # Starting points, NOT tuned values. Retune on two weeks of real wire copy
+  # (agent-plan.md TROUBLESHOOTING) — syndication patterns cannot be faked.
+
+ranking:
+  w_semantic: 1.0
+  w_timing: 1.0
+  w_tier: 0.5
+  w_novelty: 0.0             # stays 0 until Phase 5.1 beats its baseline
+  timing_halflife_hours: 12  # decay of timing_score with distance before onset
+  top_k: 10
+
+retrieval:
+  max_clusters_to_llm: 10
+  exclude_tier: 4            # tier 4 is never ingested, belt and braces
+
+embedding:
+  model: BAAI/bge-base-en-v1.5
+  dim: 768                   # must match vector(768) in schema.sql
+  batch_size: 32
+  # headline + summary ONLY, never body (agent-plan.md 0.6): full-text sources
+  # would otherwise systematically outrank headline-only ones like WSJ.

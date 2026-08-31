@@ -8,10 +8,8 @@ Call assert_utc() on every timestamp write and every read.
 """
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from email.utils import parsedate_to_datetime
-
-UTC = timezone.utc
 
 
 def assert_utc(ts: datetime) -> datetime:

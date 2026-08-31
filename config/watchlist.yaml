@@ -8,22 +8,40 @@ defaults:
   market_etf: SPY
   min_history_days: 400        # below this, emit insufficient_history, never a bad residual
 
+# revenue_tag: the us-gaap XBRL tag each company ACTUALLY files today,
+# discovered via scripts/discover_xbrl_tags.py on 2026-08-31 and ranked by
+# recency. The split is 6/6 between two tags -- no single tag works across the
+# watchlist, and ranking by datapoint count (as the spec suggests) picks
+# CostOfRevenue for GOOGL and the retired pre-ASC606 SalesRevenueNet for
+# MU/AAPL/TTWO. Re-run the script if a company changes its filing practice.
 stocks:
-  NVDA:  {name: NVIDIA Corp,               cik: "0001045810", sector_etf: SMH}
-  MRVL:  {name: Marvell Technology,        cik: "0001835632", sector_etf: SMH}
-  MU:    {name: Micron Technology,         cik: "0000723125", sector_etf: SMH}
+  NVDA:  {name: NVIDIA Corp,               cik: "0001045810", sector_etf: SMH,
+          revenue_tag: Revenues}
+  MRVL:  {name: Marvell Technology,        cik: "0001835632", sector_etf: SMH,
+          revenue_tag: RevenueFromContractWithCustomerExcludingAssessedTax}
+  MU:    {name: Micron Technology,         cik: "0000723125", sector_etf: SMH,
+          revenue_tag: RevenueFromContractWithCustomerExcludingAssessedTax}
   SNDK:  {name: Sandisk Corp,              cik: "0002023554", sector_etf: SMH,
           history_starts: "2025-02-24",
           notes: "Spun off from WDC 2025-02-24. Excluded from Phase 1 gate set.
-                  Verify backfill does not splice pre-2016 SanDisk."}
-  AVGO:  {name: Broadcom Inc,              cik: "0001730168", sector_etf: SMH}
-  QCOM:  {name: QUALCOMM Inc,              cik: "0000804328", sector_etf: SMH}
-  AAPL:  {name: Apple Inc,                 cik: "0000320193", sector_etf: XLK}
-  GOOGL: {name: Alphabet Inc,              cik: "0001652044", sector_etf: XLC}
-  NFLX:  {name: Netflix Inc,               cik: "0001065280", sector_etf: XLC}
-  TTWO:  {name: Take-Two Interactive,      cik: "0000946581", sector_etf: XLC}
-  TSLA:  {name: Tesla Inc,                 cik: "0001318605", sector_etf: XLY}
-  SBUX:  {name: Starbucks Corp,            cik: "0000829224", sector_etf: XLY}
+                  Verify backfill does not splice pre-2016 SanDisk.",
+          revenue_tag: RevenueFromContractWithCustomerExcludingAssessedTax}
+  AVGO:  {name: Broadcom Inc,              cik: "0001730168", sector_etf: SMH,
+          revenue_tag: RevenueFromContractWithCustomerExcludingAssessedTax}
+  QCOM:  {name: QUALCOMM Inc,              cik: "0000804328", sector_etf: SMH,
+          revenue_tag: Revenues}
+  AAPL:  {name: Apple Inc,                 cik: "0000320193", sector_etf: XLK,
+          revenue_tag: RevenueFromContractWithCustomerExcludingAssessedTax}
+  GOOGL: {name: Alphabet Inc,              cik: "0001652044", sector_etf: XLC,
+          revenue_tag: Revenues}
+  NFLX:  {name: Netflix Inc,               cik: "0001065280", sector_etf: XLC,
+          revenue_tag: Revenues}
+  TTWO:  {name: Take-Two Interactive,      cik: "0000946581", sector_etf: XLC,
+          revenue_tag: RevenueFromContractWithCustomerExcludingAssessedTax}
+  TSLA:  {name: Tesla Inc,                 cik: "0001318605", sector_etf: XLY,
+          revenue_tag: Revenues}
+  SBUX:  {name: Starbucks Corp,            cik: "0000829224", sector_etf: XLY,
+          revenue_tag: Revenues}
 
 # agent-plan.md §0.1b — sector ETFs are first-class attribution entities, regressed
 # on SPY alone. The daily batch runs these FIRST so stock attributions can

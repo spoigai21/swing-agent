@@ -720,3 +720,75 @@ not survive a lid close or reboot. For a component whose entire premise is
 continuous collection, the real answer is an always-on host — a $5 VPS or a
 Raspberry Pi — with Postgres and the collector on it. Everything else in this
 system is a batch job that can run anywhere; only the collector must never stop.
+
+---
+
+# 9 — Step 1 findings (2026-08-31)
+
+## 9.1 ✅ C1 resolved — intraday is capped at 60 days, hard
+
+`yfinance` serves 5-minute bars for **the last 60 days only**. `period=2mo` and
+`3mo` are rejected outright: *"The requested range must be within the last 60
+days."* `1mo` returns 1,639 bars. Verified for NVDA, SMH and SPY — stock, sector
+and market all available, all tz-aware (`America/New_York`), so `assert_utc`
+converts cleanly.
+
+Consequences, now fixed in `config/thresholds.yaml`:
+
+- Onset detection is exact for swings **inside 60 days**.
+- Older swings get `swing_type='unknown'`, `onset_source='fallback_48h'`, and a
+  conservative 48-hour pre-move window. They are flagged and must be excluded
+  from ranking-weight tuning.
+- **Capture-on-detect is mandatory, not optional.** Persist a swing day's
+  intraday bars the moment it is detected, or the window closes permanently.
+
+`FINNHUB_API_KEY` is still empty, so the "is Finnhub's candle endpoint free?"
+question is untested. It no longer blocks anything: yfinance is the plan of
+record and it works.
+
+## 9.2 ⚠️ The XBRL tag heuristic in the spec is wrong
+
+`agent-plan.md` says to take the revenue tag with the most datapoints. Run
+against the real watchlist, that picks:
+
+- **`CostOfRevenue` for GOOGL** — a cost, not revenue
+- **`CostOfRevenue` tied with `Revenues` for NVDA** — resolved by sort order
+- **`SalesRevenueNet` for MU, AAPL and TTWO** — the pre-ASC606 tag retired
+  around 2018. It wins on volume purely through history and has no recent data.
+
+Five of twelve wrong. `scripts/discover_xbrl_tags.py` now excludes non-top-line
+tags (`CostOf*`, `Deferred*`, `ContractWithCustomerLiability*`, ...) and ranks
+by **most recent filing** rather than count. Every ticker now resolves to a tag
+it actually files today, and the results are recorded per ticker in
+`config/watchlist.yaml`:
+
+| Tag | Tickers |
+|---|---|
+| `Revenues` | NVDA, QCOM, GOOGL, NFLX, TSLA, SBUX |
+| `RevenueFromContractWithCustomerExcludingAssessedTax` | MRVL, MU, SNDK, AVGO, AAPL, TTWO |
+
+An exact 6/6 split — direct confirmation that no single tag works.
+
+## 9.3 ⚠️ Alembic autogenerate would have dropped the vector index
+
+`alembic check` on the first pass proposed `remove_index` for all nine indexes
+and `remove_constraint` for all ten CHECK constraints — including
+`articles_embedding_idx`, the hnsw vector index. Cause: the ORM declared
+columns but not indexes/constraints, so autogenerate read them as drift.
+
+Anyone running `alembic revision --autogenerate` would have generated a
+migration that silently destroys retrieval performance.
+
+Fixed both ways: `include_object` in `env.py` excludes indexes from comparison
+(schema.sql owns them, documented in-file), and the ten CHECK constraints are
+now declared in `models.py` with the names Postgres assigns. `alembic check`
+reports no drift, and a models-vs-`information_schema` comparison confirms all
+13 tables match exactly.
+
+## 9.4 Still open
+
+- `FINNHUB_API_KEY` and `GEMINI_API_KEY` are empty. Needed for Step 2 (Finnhub
+  news, analyst actions) and Step 5 respectively.
+- `insight-agent-guide.md` still missing (see §8.3). `idio_share` has been
+  implemented as `|residual| / |ret|` in `daily_factors`; confirm that matches
+  the intent.
