@@ -7,7 +7,7 @@ from typing import Any
 
 import yaml
 
-from common.settings import CONFIG_DIR
+from swing.common.settings import CONFIG_DIR
 
 
 @dataclass(slots=True)

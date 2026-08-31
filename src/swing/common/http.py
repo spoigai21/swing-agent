@@ -20,7 +20,7 @@ from tenacity import (
     wait_exponential,
 )
 
-from common.settings import get_settings
+from swing.common.settings import get_settings
 
 SEC_MIN_INTERVAL = 0.12  # seconds between SEC requests (limit is 10/s)
 RSS_MIN_INTERVAL = 0.25

@@ -13,12 +13,12 @@ from __future__ import annotations
 
 from typing import Any
 
-from common import logging as log
-from common.http import sec_get
-from common.timeutil import parse_iso
-from ingest.config import cik_map, edgar_config
-from store.raw import RawArticle, bump_health, insert_many
-from store.session import connect
+from swing.common import logging as log
+from swing.common.http import sec_get
+from swing.common.timeutil import parse_iso
+from swing.ingest.config import cik_map, edgar_config
+from swing.store.raw import RawArticle, bump_health, insert_many
+from swing.store.session import connect
 
 logger = log.get("ingest.edgar")
 

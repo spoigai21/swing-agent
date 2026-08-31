@@ -2,18 +2,19 @@
 from __future__ import annotations
 
 from functools import lru_cache
-from pathlib import Path
-
 from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-REPO_ROOT = Path(__file__).resolve().parent.parent
-CONFIG_DIR = REPO_ROOT / "config"
+from swing.paths import CONFIG, ENV_FILE, ROOT
+
+# Re-exported for callers that predate swing.paths.
+REPO_ROOT = ROOT
+CONFIG_DIR = CONFIG
 
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
-        env_file=REPO_ROOT / ".env", env_file_encoding="utf-8", extra="ignore"
+        env_file=ENV_FILE, env_file_encoding="utf-8", extra="ignore"
     )
 
     # --- Phase -1: the collector needs only these two ---

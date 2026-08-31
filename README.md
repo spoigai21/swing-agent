@@ -15,22 +15,49 @@ starts before the rest of the system exists.
 
 ## Runbook
 
+### The `swing` command
+
+Installed globally (editable, so code edits take effect immediately):
+
+```bash
+uv tool install --editable . --python 3.12    # or: pipx install -e .
+swing coverage        # what data do I have          (works, <100ms)
+swing health          # per-source feed health       (works)
+swing collect         # one collection pass          (works)
+swing dbinit          # apply schema, idempotent     (works)
+swing                 # interactive REPL
+```
+
+`swing why / stats / compare / unexplained / ask / batch` exist but report the
+build step that unlocks them. **Only `ask` and `batch` ever call Gemini.**
+
 ### The collector
 
 ```bash
 tail -f data/collector.log            # watch it
-.venv/bin/python ingest/collector.py --report   # per-source counts
+swing health                          # per-source counts + broken-feed check
 kill $(cat data/collector.pid)        # stop
-nohup .venv/bin/python ingest/collector.py > data/collector.nohup.log 2>&1 &
-  echo $! > data/collector.pid        # start
+nohup caffeinate -is swing collect --daemon > data/collector.nohup.log 2>&1 &
+  echo $! > data/collector.pid        # start  (see the sleep caveat below)
 ```
 
 Polls: EDGAR 8-K every 10 min (12 CIKs) · IR RSS every 10 min · tier-3 press
 every 15 min · dead-feed check every 6 h.
 
-### ⚠️ Persistence caveat — read this
+### ⚠️ Two persistence caveats — read both
 
-The collector currently runs under `nohup`. **It survives closing the terminal,
+**1. This Mac sleeps after 1 minute idle** (`pmset` reports `sleep 1`,
+`powernap 0` on battery). `time.monotonic()` freezes across macOS sleep, so the
+collector stops polling entirely — observed directly: one poll, then 61 minutes
+with zero CPU and no polls. That is silent, permanent news loss.
+
+The `caffeinate -is` wrapper above is the mitigation and is verified working,
+but it keeps the Mac awake and does not survive a lid close. **The real fix is
+an always-on host** — a $5 VPS or a Raspberry Pi running Postgres and the
+collector. Every other part of this system is a batch job that can run anywhere;
+only the collector must never stop.
+
+**2. The collector runs under `nohup`. It survives closing the terminal,
 but not a reboot or logout.** A macOS LaunchAgent was tried and does not work
 from this location: `~/Desktop` is TCC-protected, and a launchd background agent
 does not inherit Full Disk Access, so the Python interpreter blocks forever in
@@ -66,12 +93,20 @@ docker exec -e PGPASSWORD=swing swing-db psql -U swing -d swing_agent
 ## What exists
 
 ```
-common/     settings, timeutil (UTC discipline), http (rate limits), logging
-store/      schema_phase_minus1.sql, session.py, raw.py
-ingest/     collector.py (daemon), edgar.py, news_rss.py, health.py, config.py
-config/     watchlist.yaml (12 stocks + 4 sectors, CIKs verified), sources.yaml
-scripts/    bootstrap_db.py, com.swingagent.collector.plist
+pyproject.toml          entry point: swing = "swing.cli:main"
+src/swing/
+  cli.py                dispatcher + REPL
+  commands.py           one function per subcommand
+  paths.py              absolute path resolution, SWING_HOME override
+  common/               settings, timeutil (UTC discipline), http, logging
+  store/                schema, session, raw
+  ingest/               collector, edgar, news_rss, health, config
+config/                 watchlist.yaml (CIKs verified), sources.yaml
+scripts/                bootstrap_db.py, com.swingagent.collector.plist
 ```
+
+Package layout is `src/swing/` because a globally installed `swing` would
+otherwise put `common` and `agent` on the system as top-level import names.
 
 ## Next: Step 1
 

@@ -8,10 +8,10 @@ from __future__ import annotations
 import subprocess
 import sys
 
-from common import logging as log
-from common.timeutil import now_utc
-from ingest.config import feeds
-from store.session import connect
+from swing.common import logging as log
+from swing.common.timeutil import now_utc
+from swing.ingest.config import feeds
+from swing.store.session import connect
 
 logger = log.get("ingest.health")
 

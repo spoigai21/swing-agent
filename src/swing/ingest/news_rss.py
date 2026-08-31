@@ -10,11 +10,11 @@ from typing import Any
 
 import feedparser
 
-from common import logging as log
-from common.http import feed_get
-from common.timeutil import now_utc, parse_rss_datetime
-from ingest.config import FeedSpec
-from store.raw import RawArticle, bump_health, insert_many
+from swing.common import logging as log
+from swing.common.http import feed_get
+from swing.common.timeutil import now_utc, parse_rss_datetime
+from swing.ingest.config import FeedSpec
+from swing.store.raw import RawArticle, bump_health, insert_many
 
 logger = log.get("ingest.rss")
 

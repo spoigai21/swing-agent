@@ -12,7 +12,7 @@ from pathlib import Path
 import psycopg
 from psycopg.rows import dict_row
 
-from common.settings import get_settings
+from swing.common.settings import get_settings
 
 SCHEMA_PHASE_MINUS1 = Path(__file__).parent / "schema_phase_minus1.sql"
 

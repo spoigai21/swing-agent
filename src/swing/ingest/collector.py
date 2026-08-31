@@ -12,17 +12,14 @@ from __future__ import annotations
 import argparse
 import random
 import signal
-import sys
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-
-from common import logging as log  # noqa: E402
-from common.settings import REPO_ROOT, get_settings  # noqa: E402
-from ingest import edgar, health, news_rss  # noqa: E402
-from ingest.config import edgar_config, feeds  # noqa: E402
+from swing.common import logging as log
+from swing.common.settings import REPO_ROOT, get_settings
+from swing.ingest import edgar, health, news_rss
+from swing.ingest.config import edgar_config, feeds
 
 logger = log.get("collector")
 _STOP = False

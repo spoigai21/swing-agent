@@ -6,8 +6,8 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any
 
-from common.timeutil import assert_utc, now_utc
-from store.session import connect
+from swing.common.timeutil import assert_utc, now_utc
+from swing.store.session import connect
 
 INSERT = """
 INSERT INTO articles_raw (url, source, headline, summary, body, published_at, retrieved_at, raw)
