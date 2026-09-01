@@ -98,3 +98,86 @@ feeds:
      url: "https://search.cnbc.com/rs/search/combinedcms/view.xml?partnerId=wrss01&id=19854910", verified: true}
   - {id: cnbc_earnings, source: cnbc,       tier: 3, tickers: [], poll_seconds: 900,
      url: "https://search.cnbc.com/rs/search/combinedcms/view.xml?partnerId=wrss01&id=15839135", verified: true}
+
+# ---------------------------------------------------------------------------
+# Publisher -> tier. Tiering must be per PUBLISHER, not per feed: Finnhub's
+# company-news endpoint returns many publishers through one pipe, mixing Tier 2
+# wire copy with Tier 4 aggregator content. Assigning the feed's tier to every
+# article it carries would silently admit SEO/aggregator posts as evidence.
+#
+# Anything not listed here defaults to tier 4 and is DROPPED at normalize time.
+# Add publishers deliberately; the default is exclusion, not inclusion.
+# ---------------------------------------------------------------------------
+publisher_tiers:
+  # Tier 1 — primary disclosure
+  sec-edgar: 1
+  nvidia-ir: 1
+  apple-ir: 1
+  broadcom-ir: 1
+  sandisk-ir: 1
+  taketwo-ir: 1
+  netflix-ir: 1
+
+  finnhub-recommendation: 2
+
+  # Tier 2 — wire services
+  reuters: 2
+  "thomson reuters": 2
+  ap: 2
+  "associated press": 2
+  bloomberg: 2
+  "dow jones": 2
+  "dow jones newswires": 2
+  "business wire": 2
+  businesswire: 2
+  globenewswire: 2
+  "pr newswire": 2
+  prnewswire: 2
+  accesswire: 2
+
+  # Tier 3 — analysis and framing
+  wsj: 3
+  "the wall street journal": 3
+  marketwatch: 3
+  cnbc: 3
+  "financial times": 3
+  ft: 3
+  barrons: 3
+  "barron's": 3
+  forbes: 3
+  fortune: 3
+  axios: 3
+  "the information": 3
+  theinformation: 3
+  semianalysis: 3
+  tomshardware: 3
+  "tom's hardware": 3
+  anandtech: 3
+  theregister: 3
+  "the register": 3
+  techcrunch: 3
+  "ars technica": 3
+  arstechnica: 3
+  engadget: 3
+  theverge: 3
+  "the verge": 3
+  google-blog: 3
+
+  # Tier 4 — explicitly excluded. Listed so the intent is visible rather than
+  # relying on the default; these are the ones Finnhub actually returns.
+  seekingalpha: 4
+  "seeking alpha": 4
+  zacks: 4
+  "zacks investment research": 4
+  benzinga: 4
+  investorplace: 4
+  "motley fool": 4
+  fool: 4
+  "simply wall st": 4
+  simplywallst: 4
+  gurufocus: 4
+  investing.com: 4
+  tipranks: 4
+  insidermonkey: 4
+  "24/7 wall st": 4
+  thestreet: 4

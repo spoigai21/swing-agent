@@ -8,6 +8,10 @@ defaults:
   market_etf: SPY
   min_history_days: 400        # below this, emit insufficient_history, never a bad residual
 
+# aliases: names used to tag an article to a company when the feed does not say.
+# Curated, NOT derived from the company name: deriving it produced a pattern that
+# matched the bare word 'Interactive' for TTWO. Only distinctive names belong here.
+#
 # revenue_tag: the us-gaap XBRL tag each company ACTUALLY files today,
 # discovered via scripts/discover_xbrl_tags.py on 2026-08-31 and ranked by
 # recency. The split is 6/6 between two tags -- no single tag works across the
@@ -16,32 +20,44 @@ defaults:
 # MU/AAPL/TTWO. Re-run the script if a company changes its filing practice.
 stocks:
   NVDA:  {name: NVIDIA Corp,               cik: "0001045810", sector_etf: SMH,
-          revenue_tag: Revenues}
+          revenue_tag: Revenues,
+          aliases: [Nvidia]}
   MRVL:  {name: Marvell Technology,        cik: "0001835632", sector_etf: SMH,
-          revenue_tag: RevenueFromContractWithCustomerExcludingAssessedTax}
+          revenue_tag: RevenueFromContractWithCustomerExcludingAssessedTax,
+          aliases: [Marvell]}
   MU:    {name: Micron Technology,         cik: "0000723125", sector_etf: SMH,
-          revenue_tag: RevenueFromContractWithCustomerExcludingAssessedTax}
+          revenue_tag: RevenueFromContractWithCustomerExcludingAssessedTax,
+          aliases: [Micron]}
   SNDK:  {name: Sandisk Corp,              cik: "0002023554", sector_etf: SMH,
           history_starts: "2025-02-24",
           notes: "Spun off from WDC 2025-02-24. Excluded from Phase 1 gate set.
                   Verify backfill does not splice pre-2016 SanDisk.",
-          revenue_tag: RevenueFromContractWithCustomerExcludingAssessedTax}
+          revenue_tag: RevenueFromContractWithCustomerExcludingAssessedTax,
+          aliases: [SanDisk]}
   AVGO:  {name: Broadcom Inc,              cik: "0001730168", sector_etf: SMH,
-          revenue_tag: RevenueFromContractWithCustomerExcludingAssessedTax}
+          revenue_tag: RevenueFromContractWithCustomerExcludingAssessedTax,
+          aliases: [Broadcom, VMware]}
   QCOM:  {name: QUALCOMM Inc,              cik: "0000804328", sector_etf: SMH,
-          revenue_tag: Revenues}
+          revenue_tag: Revenues,
+          aliases: [Qualcomm, Snapdragon]}
   AAPL:  {name: Apple Inc,                 cik: "0000320193", sector_etf: XLK,
-          revenue_tag: RevenueFromContractWithCustomerExcludingAssessedTax}
+          revenue_tag: RevenueFromContractWithCustomerExcludingAssessedTax,
+          aliases: [Apple]}
   GOOGL: {name: Alphabet Inc,              cik: "0001652044", sector_etf: XLC,
-          revenue_tag: Revenues}
+          revenue_tag: Revenues,
+          aliases: [Alphabet, Google, DeepMind, Waymo]}
   NFLX:  {name: Netflix Inc,               cik: "0001065280", sector_etf: XLC,
-          revenue_tag: Revenues}
+          revenue_tag: Revenues,
+          aliases: [Netflix]}
   TTWO:  {name: Take-Two Interactive,      cik: "0000946581", sector_etf: XLC,
-          revenue_tag: RevenueFromContractWithCustomerExcludingAssessedTax}
+          revenue_tag: RevenueFromContractWithCustomerExcludingAssessedTax,
+          aliases: [Take-Two, "Rockstar Games", "Grand Theft Auto", Zynga]}
   TSLA:  {name: Tesla Inc,                 cik: "0001318605", sector_etf: XLY,
-          revenue_tag: Revenues}
+          revenue_tag: Revenues,
+          aliases: [Tesla]}
   SBUX:  {name: Starbucks Corp,            cik: "0000829224", sector_etf: XLY,
-          revenue_tag: Revenues}
+          revenue_tag: Revenues,
+          aliases: [Starbucks]}
 
 # agent-plan.md §0.1b — sector ETFs are first-class attribution entities, regressed
 # on SPY alone. The daily batch runs these FIRST so stock attributions can

@@ -5,6 +5,8 @@ src/swing/cli.py
 src/swing/commands.py
 src/swing/paths.py
 src/swing/agent/__init__.py
+src/swing/agent/llm.py
+src/swing/agent/schema.py
 src/swing/analysis/__init__.py
 src/swing/common/__init__.py
 src/swing/common/http.py
@@ -18,7 +20,10 @@ src/swing/ingest/collector.py
 src/swing/ingest/config.py
 src/swing/ingest/edgar.py
 src/swing/ingest/health.py
+src/swing/ingest/news_finnhub.py
 src/swing/ingest/news_rss.py
+src/swing/ingest/normalize.py
+src/swing/ingest/prices.py
 src/swing/models/__init__.py
 src/swing/store/__init__.py
 src/swing/store/models.py
@@ -34,5 +39,7 @@ src/swing_agent.egg-info/entry_points.txt
 src/swing_agent.egg-info/requires.txt
 src/swing_agent.egg-info/top_level.txt
 tests/test_config.py
+tests/test_normalize.py
+tests/test_schema.py
 tests/test_timeutil.py
 tests/test_versioning.py

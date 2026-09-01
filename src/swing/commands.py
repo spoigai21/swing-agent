@@ -84,6 +84,44 @@ def dbinit() -> int:
     return 0
 
 
+def backfill(years: int = 2, symbols: list[str] | None = None) -> int:
+    from swing.common import logging as log
+    from swing.ingest.prices import backfill_daily, enforce_history_start
+
+    log.setup()
+    written = backfill_daily(symbols or None, years=years)
+    print(f"\n{sum(written.values()):,} bars across {len(written)} symbols")
+    for ticker, ok, msg in enforce_history_start(purge=True):
+        print(f"  {ticker}: {'ok' if ok else 'PROBLEM'} — {msg}")
+    return 0
+
+
+def normalize(limit: int | None = None) -> int:
+    from swing.common import logging as log
+    from swing.ingest.normalize import normalize_all, normalize_batch
+
+    log.setup()
+    got = normalize_batch(limit) if limit else normalize_all()
+    print(f"read {got['read']}, wrote {got['written']}, "
+          f"dropped {got['dropped_tier4']} as tier 4")
+    return 0
+
+
+def prices() -> int:
+    from swing.ingest.prices import coverage_report, enforce_history_start
+
+    rows = coverage_report()
+    if not rows:
+        print("no bars yet — run `swing backfill`")
+        return 0
+    print(f"{'ticker':<8}{'bars':>7}  {'first':<12}{'last':<12}")
+    for r in rows:
+        print(f"{r['ticker']:<8}{r['n']:>7}  {r['first_day']!s:<12}{r['last_day']!s:<12}")
+    for ticker, ok, msg in enforce_history_start(purge=False):
+        print(f"\n  {ticker}: {'ok' if ok else 'PROBLEM'} — {msg}")
+    return 0
+
+
 # --------------------------------------------------------------------------
 # Not built yet — each names the step that unlocks it
 # --------------------------------------------------------------------------

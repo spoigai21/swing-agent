@@ -61,6 +61,14 @@ def build_parser() -> argparse.ArgumentParser:
     b = sub.add_parser("batch", help="run the daily attribution batch")
     b.add_argument("--date")
 
+    bf = sub.add_parser("backfill", help="pull historical price bars")
+    bf.add_argument("--years", type=int, default=2)
+    bf.add_argument("--symbols", nargs="*")
+
+    nz = sub.add_parser("normalize", help="articles_raw -> articles (tier, tag, embed)")
+    nz.add_argument("--limit", type=int, default=None, help="one batch of this size")
+
+    sub.add_parser("prices", help="price coverage report + history-start checks")
     sub.add_parser("dbinit", help="apply the database schema (idempotent)")
     return p
 
@@ -77,6 +85,12 @@ def dispatch(args: argparse.Namespace) -> int:
             return commands.health()
         case "dbinit":
             return commands.dbinit()
+        case "backfill":
+            return commands.backfill(args.years, args.symbols)
+        case "normalize":
+            return commands.normalize(args.limit)
+        case "prices":
+            return commands.prices()
         case "why":
             return commands.why(args.ticker, args.date)
         case "stats":

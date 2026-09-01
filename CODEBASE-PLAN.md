@@ -905,3 +905,93 @@ collector. Everything else here is a batch job that can run anywhere.
 
 Interim: enable *Start Docker Desktop when you sign in* in Docker settings, and
 keep the `caffeinate -is` wrapper.
+
+---
+
+# 11 — Step 2 findings (2026-08-31)
+
+## 11.1 ✅ Prices need no key; Gate 0 price condition met
+
+yfinance is keyless. 17 symbols x 2 years = **8,468 unadjusted daily bars**,
+505 per symbol, plus 98 dividends and 3 splits (NFLX 10:1 on 2025-11-17,
+XLK and XLY 2:1 on 2025-12-05). **Zero missing trading days** across all 16
+non-SPY symbols, checked against SPY as the calendar proxy.
+
+Finnhub is not involved: `/stock/candle` is 403 on free for daily as well as
+intraday, so yfinance is the source for all bars.
+
+## 11.2 ⚠️ SNDK: when-issued trading, not a spliced predecessor
+
+The history-start check fired. The cause was **not** the pre-2016 SanDisk the
+spec warns about — it was **when-issued trading** in the 6 sessions from
+2025-02-13, before regular-way trading opened on 2025-02-24. Median volume
+406,800 against 9,678,900 after; prices in the post-spin range, whereas the old
+SanDisk was acquired at ~$86.50 in 2016.
+
+Same corrective action, different diagnosis. `enforce_history_start()` now
+handles both and distinguishes them by gap size (>365 days = spliced
+predecessor; otherwise when-issued). SNDK now starts exactly 2025-02-24 with
+382 bars.
+
+## 11.3 ⚠️ A regex bug was mistagging 41% of MU articles
+
+Ticker aliases were derived from company names, which produced two defects:
+
+1. `Take-Two Interactive` yielded the bare word **`Interactive`**, tagging any
+   article about an interactive anything.
+2. Worse, the alternation was **ungrouped**: `(?<!x)MU|Micron(?!x)` binds the
+   lookbehind only to `MU` and the lookahead only to `Micron`. So `MU` matched
+   with no trailing boundary at all — **"Musk", "Multiple" and "Munich" all
+   tagged MU.** 28 of 68 MU articles were mistagged, on a ticker already flagged
+   as thin on coverage.
+
+Fixed: aliases are now curated in `config/watchlist.yaml`, never derived, and
+the alternation is grouped. A test asserts every pattern is grouped, so a bare
+`|` cannot reintroduce it.
+
+## 11.4 ⚠️ Finnhub free news is 90% Tier 4, and has NO Tier 2 at all
+
+583 company-news articles pulled across the watchlist. Resolved tiers:
+
+| Publisher | n | Tier | |
+|---|---|---|---|
+| Benzinga | 317 | 4 | dropped |
+| SeekingAlpha | 151 | 4 | dropped |
+| CNBC | 59 | 3 | kept |
+| ChartMill | 40 | 4 | dropped |
+| Yahoo | 16 | 4 | dropped |
+
+**Five distinct publishers. 524 of 583 dropped (90%). Zero Tier 2.**
+
+No Reuters, AP, Bloomberg or Dow Jones. This contradicts `data-sources.md` C.3
+("Tier 2 — Reuters/AP content arriving via Finnhub or Marketaux") and it leaves
+a hole in the middle of the source-tier scheme: Tier 1 and Tier 3 are populated,
+**Tier 2 is empty**.
+
+Consequences worth deciding on:
+
+- The only Finnhub content that survives is 59 CNBC articles **we already
+  collect via RSS**. On the free tier, Finnhub company-news adds essentially
+  nothing beyond the analyst recommendation trend.
+- Design Rule 4 (dedup wire syndication) and the `distinct_sources`
+  corroboration count were designed around wire copy that we do not have.
+- `w_tier` in the ranking score spans a two-tier system, not four.
+
+Options, cheapest first: add **Business Wire / PR Newswire / GlobeNewswire**
+public RSS (free, carries the actual press releases, genuinely Tier 1-2); try
+Marketaux for publisher breadth; or accept a two-tier system and retune
+`w_tier`. Recommend the newswire RSS feeds — they fill the exact gap.
+
+## 11.5 Packaging: extras must be installed into the tool env
+
+`swing prices` failed from `~` with `No module named 'pandas'` while working
+inside the project. The `uv tool` environment installs only base dependencies,
+so the global command lacked the `[data]` extra. Fixed with
+`uv tool install --editable ".[data,ml,llm]" --force`. Re-run that after adding
+any dependency, or the global command silently diverges from the dev venv.
+
+## 11.6 Fixed: Docker autostart
+
+`AutoStart` was `false` in `settings-store.json`; now `true`, with a `.bak`
+alongside. Docker Desktop may rewrite this file when it quits, so confirm in
+Settings -> General -> "Start Docker Desktop when you sign in".

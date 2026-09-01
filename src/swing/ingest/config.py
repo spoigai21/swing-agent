@@ -68,3 +68,21 @@ def feeds(include_disabled: bool = False) -> list[FeedSpec]:
 
 def edgar_config() -> dict[str, Any]:
     return sources()["edgar"]
+
+
+def sectors() -> dict[str, dict]:
+    return watchlist()["sectors"]
+
+
+def market_symbol() -> str:
+    return next(iter(watchlist()["market"]))
+
+
+def all_symbols() -> list[str]:
+    """Every symbol needing price history: 12 stocks + 4 sector ETFs + SPY."""
+    return list(stocks()) + list(sectors()) + [market_symbol()]
+
+
+@lru_cache(maxsize=1)
+def thresholds() -> dict[str, Any]:
+    return yaml.safe_load((CONFIG_DIR / "thresholds.yaml").read_text())
