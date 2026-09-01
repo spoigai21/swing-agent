@@ -866,3 +866,42 @@ aliases.
 pydantic-settings loads our key into `Settings` and never exports it, so
 construction fails with a misleading *"API key required for Gemini Developer
 API"*. `agent/llm.py` passes it explicitly.
+
+## 10.5 ⚠️ The dead-feed alert had a false negative — threshold was the bug
+
+Docker Desktop stopped twice unprompted. The collector survived (per-job
+exception handling worked as designed) but logged **441 failed jobs** across
+roughly 20 hours of intermittent database outage, and `swing health` still
+reported **"broken feeds: none"**.
+
+The check was not wrong, its threshold was: a flat `stale_poll_hours=6` against
+feeds that poll every 10–15 minutes. Six hours of silence is ~24 missed cycles,
+and because RSS retains only the last 20–85 items, that is already permanent
+loss before the alarm fires.
+
+Fixed: the budget now derives from each feed's own interval,
+`max(4 × poll_interval, 30 min)` — 40 min for a 10-minute feed, 1 h for a
+15-minute feed, with a floor so a single transient blip does not alert. The
+health job itself moved from every 6 h to every 30 min, since a 6-hourly check
+would let a dead feed burn most of a 40-minute budget unobserved. Both are
+covered by tests, including one asserting the health interval stays tighter
+than the tightest budget.
+
+This also means a database outage is now caught: a failed write means
+`last_seen_at` stops advancing, which is exactly what the check reads.
+
+## 10.6 ⚠️ Operational fragility — two independent single points of failure
+
+Within one day: macOS slept the collector (§8.5), and Docker Desktop stopped
+twice, taking Postgres with it. `StartDockerOnLogin` is not set, so Docker does
+not even come back after a reboot.
+
+Neither is a code problem and neither has a code fix. For the one component
+whose premise is *continuous, unrecoverable-if-missed* collection, running it on
+a laptop that sleeps, behind a Docker daemon that does not autostart, is the
+weakest link in the system. **An always-on host is now the top operational
+recommendation** — a $5 VPS or a Raspberry Pi running Postgres and the
+collector. Everything else here is a batch job that can run anywhere.
+
+Interim: enable *Start Docker Desktop when you sign in* in Docker settings, and
+keep the `caffeinate -is` wrapper.

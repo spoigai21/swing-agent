@@ -53,3 +53,27 @@ def test_every_ticker_has_a_revenue_tag():
     # for half the tickers. data-sources.md D.4.
     for ticker, meta in stocks().items():
         assert meta.get("revenue_tag"), f"{ticker} has no revenue_tag"
+
+
+def test_staleness_budget_scales_with_poll_interval():
+    # A flat threshold is wrong: a 15-minute feed silent for 6 hours has missed
+    # ~24 cycles, and RSS retains only the last 20-85 items, so that is already
+    # permanent loss. Budget must derive from the feed's own interval.
+    from swing.ingest.health import staleness_budget
+
+    assert staleness_budget(600) == pytest.approx(0.6667, rel=1e-3)   # 10 min -> 40 min
+    assert staleness_budget(900) == pytest.approx(1.0)                # 15 min -> 1 h
+    assert staleness_budget(21600) == pytest.approx(24.0)             # 6 h -> 24 h
+    # 30-minute floor stops fast feeds alerting on a single transient blip.
+    assert staleness_budget(60) == pytest.approx(0.5)
+
+
+def test_health_check_interval_is_tighter_than_the_tightest_budget():
+    from swing.ingest.collector import build_jobs
+    from swing.ingest.health import staleness_budget
+
+    jobs = {j.name: j.interval for j in build_jobs()}
+    tightest = min(staleness_budget(f.poll_seconds) for f in feeds()) * 3600
+    assert jobs["health-check"] < tightest, (
+        "the health check must run more often than the shortest staleness budget"
+    )

@@ -10,7 +10,7 @@ import sys
 
 from swing.common import logging as log
 from swing.common.timeutil import now_utc
-from swing.ingest.config import feeds
+from swing.ingest.config import edgar_config, feeds
 from swing.store.session import connect
 
 logger = log.get("ingest.health")
@@ -46,20 +46,34 @@ def notify(title: str, message: str) -> None:
         logger.debug("notification failed", exc_info=True)
 
 
-def check_dead_feeds(stale_poll_hours: int = 6, quiet_days: int = 14) -> list[str]:
+def staleness_budget(poll_seconds: int) -> float:
+    """How long a feed may go without a successful poll before it is broken.
+
+    Derived from the feed's OWN interval, not a flat constant. A 15-minute feed
+    silent for six hours has missed ~24 cycles, and because RSS retains only the
+    last 20-85 items that is already permanent loss. Four missed cycles is the
+    alarm point; the 30-minute floor keeps fast feeds from alerting on one
+    transient network blip.
+    """
+    return max(4 * poll_seconds, 1800) / 3600.0
+
+
+def check_dead_feeds(quiet_days: int = 14) -> list[str]:
     """Alert on feeds that are BROKEN, not feeds whose publisher is quiet.
 
     These are different failures and only one is actionable:
-      * broken  -> we have not successfully polled it recently (source_health
-                   .last_seen_at is stale, or the source has never been seen).
-                   This is the "silent feed death" the plan cares about.
+      * broken  -> we have not successfully polled it recently. This catches a
+                   dead feed AND a database outage, since a failed write means
+                   last_seen_at stops advancing.
       * quiet   -> we poll it fine, the company just has not issued a press
                    release. Normal for IR feeds, which go weeks between filings.
 
     Keying the alert on published_at (as the first cut did) fires constantly for
     healthy IR feeds and trains you to ignore the one alert that matters.
     """
-    expected = {f.source for f in feeds()} | {"sec-edgar"}
+    budgets = {f.source: staleness_budget(f.poll_seconds) for f in feeds()}
+    budgets.setdefault("sec-edgar", staleness_budget(edgar_config().get("poll_seconds", 600)))
+
     with connect() as conn:
         rows = conn.execute(
             """
@@ -72,14 +86,14 @@ def check_dead_feeds(stale_poll_hours: int = 6, quiet_days: int = 14) -> list[st
     seen = {r["source"]: r for r in rows}
 
     broken, quiet = [], []
-    for source in sorted(expected):
+    for source, budget_h in sorted(budgets.items()):
         row = seen.get(source)
         if row is None or row["last_poll"] is None:
             broken.append(f"{source} (never polled)")
             continue
         age_h = (now_utc() - row["last_poll"]).total_seconds() / 3600.0
-        if age_h > stale_poll_hours:
-            broken.append(f"{source} (last poll {age_h:.1f}h ago)")
+        if age_h > budget_h:
+            broken.append(f"{source} (silent {age_h:.1f}h, budget {budget_h:.1f}h)")
             continue
         last_content = row["last_content"]
         if last_content is None:
@@ -91,10 +105,9 @@ def check_dead_feeds(stale_poll_hours: int = 6, quiet_days: int = 14) -> list[st
 
     if broken:
         msg = "Feeds not polling: " + ", ".join(broken)
-        logger.error("DEAD FEED ALERT — %s", msg)
+        logger.error("DEAD FEED ALERT - %s", msg)
         notify("SwingAgent: dead feed", msg)
     if quiet:
-        # Informational only. Never an alert.
         logger.info("quiet sources (polling fine, no new content): %s", ", ".join(quiet))
     return broken
 

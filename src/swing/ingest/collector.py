@@ -59,7 +59,9 @@ def build_jobs() -> list[Job]:
             )
         )
     jobs.append(
-        Job(name="health-check", interval=6 * 3600.0, fn=health.check_dead_feeds)
+        # Every 30 min: staleness budgets are 0.7-1.0h, so a 6-hourly check
+        # would let a dead feed run most of its budget before anyone looked.
+        Job(name="health-check", interval=1800.0, fn=health.check_dead_feeds)
     )
     return jobs
 
