@@ -11,6 +11,29 @@
 # EDGAR 8-K covers every one of these companies at Tier 1 regardless, so a
 # blocked IR feed costs redundancy, not coverage.
 
+# ---------------------------------------------------------------------------
+# Finnhub free tier, probed 2026-08-31 with a real key:
+#   /quote                 200  (o/h/l/c/pc, NO volume)
+#   /company-news          200  (243 NVDA articles in one week -- the Tier 2 workhorse)
+#   /stock/recommendation  200  (analyst recommendation trend)
+#   /calendar/earnings     200
+#   /stock/candle          403  "You don't have access to this resource"
+#                               -- for BOTH intraday AND daily resolutions
+#   /stock/price-target    403
+#
+# Two consequences:
+#  1. Finnhub supplies NO OHLCV on the free tier. agent-plan.md 0.3's "yfinance
+#     for backfill, Finnhub for ongoing updates" does not work -- yfinance is
+#     the source for ALL bars, daily and intraday, with Tiingo as fallback.
+#  2. data-sources.md C.4 wants analyst actions as synthetic Tier 2 articles.
+#     Recommendation trend is available; price targets are not. Partial coverage.
+#
+# Finnhub company-news mixes tiers -- the sample included SeekingAlpha, which is
+# Tier 4 by our own rules. normalize.py must assign tiers per PUBLISHER, not
+# per feed, and drop tier 4. Otherwise aggregator content silently enters the
+# evidence pool.
+# ---------------------------------------------------------------------------
+
 edgar:
   tier: 1
   poll_seconds: 600            # every 10 min, 12 CIKs

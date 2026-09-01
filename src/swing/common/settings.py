@@ -27,7 +27,7 @@ class Settings(BaseSettings):
     gemini_api_key: str = ""
     marketaux_api_key: str = ""
     tiingo_api_key: str = ""
-    attribution_model: str = "google_genai:gemini-flash-latest"
+    attribution_model: str = "gemini-3.7-flash"
 
     poll_jitter_pct: float = Field(default=0.1, ge=0.0, le=0.5)
 

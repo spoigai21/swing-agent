@@ -792,3 +792,77 @@ reports no drift, and a models-vs-`information_schema` comparison confirms all
 - `insight-agent-guide.md` still missing (see §8.3). `idio_share` has been
   implemented as `|residual| / |ret|` in `daily_factors`; confirm that matches
   the intent.
+
+---
+
+# 10 — API key verification (2026-08-31)
+
+Both keys added and probed against the live APIs.
+
+## 10.1 ⚠️ Finnhub free tier has NO price data at all
+
+| Endpoint | Status | Note |
+|---|---|---|
+| `/quote` | 200 | o/h/l/c/pc, **no volume** |
+| `/company-news` | 200 | 243 NVDA articles in one week — the Tier 2 workhorse |
+| `/stock/recommendation` | 200 | analyst recommendation trend |
+| `/calendar/earnings` | 200 | |
+| **`/stock/candle`** | **403** | *both* intraday **and daily** |
+| `/stock/price-target` | 403 | paid |
+
+This is broader than C1 assumed. `agent-plan.md` §0.3 says "yfinance for the
+historical backfill and Finnhub for ongoing updates" — **that ongoing-updates
+path does not exist on the free tier.** yfinance is the source for *all* bars,
+daily and intraday; Tiingo remains the fallback. `/quote` cannot substitute
+because it carries no volume, and `volume_z` is required for §1.6 and for
+turning an `unexplained` verdict into a flow-event signal.
+
+Analyst actions (data-sources.md C.4) are therefore only half-covered:
+recommendation trend yes, price targets no.
+
+**Also:** Finnhub company-news mixes source tiers — the first sampled article
+was SeekingAlpha, which is Tier 4 by our own rules. `normalize.py` must assign
+tiers **per publisher, not per feed**, or aggregator content silently enters the
+evidence pool.
+
+## 10.2 ✅ The nested Attribution schema works — no flattening needed
+
+`agent-plan.md` §3.1 and TROUBLESHOOTING both anticipate that
+`Attribution -> candidates[] -> evidence[]` (three levels) may exceed Gemini's
+supported JSON Schema subset, and prescribe flattening into two lists joined on
+`candidate_id`.
+
+Tested against both `gemini-3.7-flash` and `gemini-flash-latest`: **the nested
+schema is accepted and returns correct output.** The flat variant and
+`rehydrate()` are implemented and unit-tested, but kept as a dormant fallback so
+the workaround does not have to be rediscovered later.
+
+Behaviour on two hand-built cases was correct in both directions:
+
+- **Real catalyst** (Tier 1 8-K, pre-move, guidance cut) → `explained`, `high`
+  confidence, `event_type=guidance` (not `earnings` — it correctly identified
+  guidance as the driver), cited only the pre-move cluster, and flagged the
+  post-move CNBC story in `reactive_coverage_note` rather than as evidence.
+- **Placebo** (irrelevant Starbucks/oil headlines against a real MRVL swing) →
+  `unexplained`, zero candidates, with a sensible note.
+
+Early Gate 3 signal, on a schema that was expected to need rework.
+
+## 10.3 Model pinned, not floating
+
+`.env` now sets `ATTRIBUTION_MODEL="gemini-3.7-flash"`.
+
+`gemini-flash-latest` is a moving alias. Using it would make `attributions.model_id`
+record an alias rather than the exact model, which defeats the entire point of
+§3.1b: when a metric moves you could not tell whether it was your change or
+Google rotating the model beneath you. Available flash-class models at time of
+writing: `gemini-2.5-flash`, `gemini-3-flash-preview`, `gemini-3.1-flash-lite`,
+`gemini-3.5-flash`, `gemini-3.6-flash`, `gemini-3.7-flash`, plus the `-latest`
+aliases.
+
+## 10.4 Integration detail worth not rediscovering
+
+`langchain-google-genai` reads `GOOGLE_API_KEY` from the environment.
+pydantic-settings loads our key into `Settings` and never exports it, so
+construction fails with a misleading *"API key required for Gemini Developer
+API"*. `agent/llm.py` passes it explicitly.

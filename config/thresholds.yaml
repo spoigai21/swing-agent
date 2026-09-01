@@ -52,6 +52,7 @@ retrieval:
 
 embedding:
   model: BAAI/bge-base-en-v1.5
+  device: mps                # Apple Silicon GPU; verified available 2026-08-31
   dim: 768                   # must match vector(768) in schema.sql
   batch_size: 32
   # headline + summary ONLY, never body (agent-plan.md 0.6): full-text sources
