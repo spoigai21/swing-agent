@@ -1036,3 +1036,80 @@ if the project ever gets a budget for Benzinga-via-Polygon or RavenPack.
 **Marketaux is therefore configured but not polled** (`enabled: false`,
 `on_demand_only: true`). 1 of 15 sampled articles survived tiering and it
 duplicated CNBC RSS.
+
+---
+
+# 13 — Price retrieval verified, and a Step 3 design change (2026-09-01)
+
+## 13.1 ✅ Retrieval verified
+
+- 8,462 daily bars, 17 symbols, read back through `store/queries.py`.
+- **Zero** OHLC violations, non-positive prices, null closes, or bad volumes.
+- **Cross-validated against Tiingo**: NVDA, MU, TSLA, SPY, SMH closes match the
+  stored yfinance values to the cent (0.000% difference) on two dates.
+- Latest NVDA close 220.78 independently matches the Finnhub live quote.
+- Intraday: 78 five-minute bars per session, 09:30-15:55 ET, stored UTC.
+
+## 13.2 Tiingo intraday has no volume; source choice is now date-dependent
+
+Tiingo `/iex` 5-minute bars return exactly `date/open/high/low/close` — **no
+volume field**. yfinance intraday has volume but only 60 days of history.
+
+Neither gap blocks the plan: onset works on price returns alone (§1.3) and
+`volume_z` comes from daily bars (§1.6). `fetch_intraday()` now takes yfinance
+inside 60 days (free volume) and Tiingo beyond it (depth), so we get volume when
+it is available and history when we need it.
+
+## 13.3 ⚠️ The two-factor regression is collinear — orthogonalise the sector
+
+`agent-plan.md` §1.1 regresses the stock on market and sector returns directly.
+On real data that produces an **uninterpretable market/sector split**:
+
+```
+MRVL 2026-08-27, naive fit:
+  beta_mkt = -1.20   beta_sec = +1.82
+  market -0.78%      sector +5.57%      residual -6.87%
+```
+
+A negative market beta for a semiconductor is not credible. The cause is
+collinearity — `corr(SPY, SMH) = 0.80`, `corr(SPY, XLK) = 0.89`. It is **not**
+numerical instability: the betas are stable across refits (-1.18, -1.19, -1.16)
+and R^2 is 0.57. The coefficients are jointly identified but individually
+meaningless, which is the classic multicollinearity signature.
+
+This matters because the split IS the user-facing output. §1.1's headline
+sentence — *"Broad market accounts for -1.1%, semiconductor weakness for
+-1.9%"* — is precisely the thing that becomes wrong.
+
+**Fix: orthogonalise the sector factor against the market before fitting.**
+Regress sector on market, keep the residual as the "pure sector" factor:
+
+```
+MRVL 2026-08-27, orthogonalised:
+  beta_mkt = +3.42   beta_sec = +1.82
+  market +2.24%      sector +2.48%      residual -6.87%
+  corr(SPY, SMH_orth) = -0.000000
+```
+
+Three properties worth noting:
+
+1. **The residual is bit-identical** (-6.8704% both ways). Swing *detection* is
+   unaffected, so Gate 1 does not change.
+2. The market/sector split becomes interpretable and correctly signed.
+3. Components still sum to the total return.
+
+`analysis/factors.py` must therefore fit in two stages, and store `g1` (the
+sector-on-market loading) so the decomposition is reproducible.
+
+## 13.4 ⚠️ `idio_share` can exceed 1
+
+With offsetting factor components, `|residual| / |ret|` is 4.57 for the case
+above (residual -6.87% against a -1.50% total move). Mathematically fine, but
+"share" implies [0, 1] and a user reading "457%" will not trust it.
+
+Options: clamp to [0, 1] for display; report it as a ratio and rename; or use a
+variance-based definition (`var(residual) / var(ret)` over a window), which is
+bounded and is the more standard "idiosyncratic share". **Recommend the
+variance-based version** for `swing compare`, keeping the per-day ratio as a
+separate raw field. Needs confirming against `insight-agent-guide.md`, still
+missing.

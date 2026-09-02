@@ -175,13 +175,35 @@ def fetch_intraday_tiingo(ticker: str, day: date, interval_sec: int = 300) -> in
 
 
 def fetch_intraday(ticker: str, day: date, interval_sec: int = 300) -> int:
-    """Capture intraday bars, preferring Tiingo for its far deeper history."""
-    if get_settings().tiingo_api_key:
-        n = fetch_intraday_tiingo(ticker, day, interval_sec)
+    """Capture intraday bars, taking the best available source for the date.
+
+    The two sources trade off against each other:
+
+      * **yfinance** — carries volume, but only for the last 60 days.
+      * **Tiingo IEX** — reaches back to at least 2024-09-03, but returns
+        OHLC ONLY. Its 5-minute bars have no volume field (verified
+        2026-09-01: fields are exactly date/open/high/low/close).
+
+    Neither gap blocks the plan: onset detection works on price returns alone
+    (agent-plan.md 1.3), and `volume_z` is computed from DAILY bars, which
+    always carry volume (1.6). So we take volume when it is free and depth when
+    we need it.
+    """
+    within_yf_window = (datetime.now(UTC).date() - day).days <= _yf_intraday_days()
+    if within_yf_window:
+        n = fetch_intraday_yf(ticker, day, interval_sec)
         if n:
             return n
-        logger.info("tiingo returned nothing for %s %s; trying yfinance", ticker, day)
-    return fetch_intraday_yf(ticker, day, interval_sec)
+        logger.info("yfinance returned nothing for %s %s; trying tiingo", ticker, day)
+    if get_settings().tiingo_api_key:
+        return fetch_intraday_tiingo(ticker, day, interval_sec)
+    return 0 if within_yf_window else fetch_intraday_yf(ticker, day, interval_sec)
+
+
+def _yf_intraday_days() -> int:
+    from swing.ingest.config import thresholds
+
+    return int(thresholds()["onset"].get("yfinance_max_backfill_days", 60))
 
 
 def fetch_intraday_yf(ticker: str, day: date, interval_sec: int = 300) -> int:
