@@ -211,3 +211,27 @@ publisher_tiers:
   insidermonkey: 4
   "24/7 wall st": 4
   thestreet: 4
+
+# ---------------------------------------------------------------------------
+# Marketaux: key verified 2026-09-01, DELIBERATELY NOT POLLED.
+#
+# Free tier returns 3 articles/request, ~100 requests/day. Sampled 15 articles:
+#   gurufocus 6, seekingalpha 4, thestockmarketwatch 2, investingcaffeine 1,
+#   insidermonkey 1  -> all tier 4, dropped
+#   cnbc 1                                              -> tier 3, kept
+# 1 of 15 survives tiering, and that one duplicates our CNBC RSS.
+#
+# Targeted domain queries confirm ZERO tier-2 wire copy: reuters.com found=0,
+# apnews.com 0, bloomberg.com 0, wsj.com 0. Only cnbc.com (4,228).
+#
+# Its documented purpose was a dedup stress test for syndicated wire copy
+# (agent-plan.md rule 4). There is no wire syndication in the free stack to
+# collapse, so that purpose is moot.
+#
+# Kept for ON-DEMAND use: querying a narrow window when investigating one
+# specific swing is a reasonable use of 100 requests/day. Polling it is not.
+# ---------------------------------------------------------------------------
+marketaux:
+  enabled: false
+  reason: "1/15 articles survive tiering; zero tier-2 sources; duplicates CNBC RSS"
+  on_demand_only: true

@@ -995,3 +995,44 @@ any dependency, or the global command silently diverges from the dev venv.
 `AutoStart` was `false` in `settings-store.json`; now `true`, with a `.bak`
 alongside. Docker Desktop may rewrite this file when it quits, so confirm in
 Settings -> General -> "Start Docker Desktop when you sign in".
+
+---
+
+# 12 — Tier 2 is definitively unavailable on free tiers (2026-09-01)
+
+All three free news sources now tested with live keys:
+
+| Source | Tier 2 wire copy |
+|---|---|
+| Finnhub company-news | **0** — 5 publishers, none of them wire |
+| Marketaux | **0** — reuters.com found=0, apnews.com 0, bloomberg.com 0, wsj.com 0 |
+| Direct RSS | **0** — Reuters killed its public feeds |
+
+`data-sources.md` C.3 assigns "Tier 2 — Reuters/AP content arriving via Finnhub
+or Marketaux". **That content does not exist on these tiers.** C.1 already
+concedes this for WSJ/FT/Dow Jones full text; it is in fact true of the entire
+wire layer.
+
+**This is a two-tier system.** Tier 1 (EDGAR 8-K, IR feeds, newswire press
+releases) and Tier 3 (WSJ/CNBC/MarketWatch RSS) are well populated; Tier 2 is
+structurally empty and will stay that way without a paid feed.
+
+Consequences to handle in Step 4 (retrieval):
+
+- `w_tier` in the §2.3 ranking score spans two populated tiers, not four. The
+  `(5 - tier)` term gives Tier 1 = 4 and Tier 3 = 2; that is a reasonable
+  2:1 weighting, so the formula still works — but tune it knowing the middle
+  is empty rather than under-collected.
+- `distinct_sources` as a corroboration count is weaker than designed. Wire
+  syndication across dozens of outlets is the thing it was built to collapse,
+  and there is none. Corroboration will mostly mean "the 8-K plus one or two
+  tier-3 write-ups".
+- Design Rule 4 (dedup before counting corroboration) still matters for tier-3
+  rewrites of the same story, just far less than for wire copy.
+
+This is not a gap to fix; it is the shape of a $0 stack. Worth revisiting only
+if the project ever gets a budget for Benzinga-via-Polygon or RavenPack.
+
+**Marketaux is therefore configured but not polled** (`enabled: false`,
+`on_demand_only: true`). 1 of 15 sampled articles survived tiering and it
+duplicated CNBC RSS.
