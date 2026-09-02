@@ -69,6 +69,16 @@ def build_parser() -> argparse.ArgumentParser:
     nz.add_argument("--limit", type=int, default=None, help="one batch of this size")
 
     sub.add_parser("prices", help="price coverage report + history-start checks")
+
+    fa = sub.add_parser("factors", help="rebuild daily_factors (rolling decomposition)")
+    fa.add_argument("--ticker")
+
+    de = sub.add_parser("detect", help="detect swings on the residual")
+    de.add_argument("--capture", action="store_true",
+                    help="fetch intraday for each swing as it is found (slow)")
+
+    ob = sub.add_parser("onsets", help="backfill intraday + onset for swings lacking it")
+    ob.add_argument("--limit", type=int)
     sub.add_parser("dbinit", help="apply the database schema (idempotent)")
     return p
 
@@ -91,6 +101,12 @@ def dispatch(args: argparse.Namespace) -> int:
             return commands.normalize(args.limit)
         case "prices":
             return commands.prices()
+        case "factors":
+            return commands.factors(args.ticker)
+        case "detect":
+            return commands.detect(args.capture)
+        case "onsets":
+            return commands.onsets(args.limit)
         case "why":
             return commands.why(args.ticker, args.date)
         case "stats":

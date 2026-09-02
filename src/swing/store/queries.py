@@ -87,13 +87,22 @@ def factors_for(ticker: str, days: int = 90) -> list[dict[str, Any]]:
 
 
 def idio_share_summary(tickers: list[str], days: int = 90) -> list[dict[str, Any]]:
-    """Backs `swing compare`. idio_share = |residual| / |ret|."""
+    """Backs `swing compare`.
+
+    idio_share here is VARIANCE-based: var(residual) / var(ret) over the window.
+    The per-day ratio |residual|/|ret| stored on daily_factors is unbounded — it
+    exceeds 1 whenever the factor components offset, and averaging it produces
+    values like 3.29 that are dominated by days where ret is near zero. The
+    variance form is bounded [0, 1] and is the standard "idiosyncratic share":
+    the fraction of this name's return variance that the factors do not explain.
+    """
     with connect() as conn:
         return conn.execute(
             """
             SELECT ticker,
                    count(*) AS n,
-                   round(avg(idio_share)::numeric, 3)          AS avg_idio_share,
+                   round((var_samp(residual) / nullif(var_samp(ret), 0))::numeric, 3)
+                                                              AS avg_idio_share,
                    round(avg(r_squared)::numeric, 3)           AS avg_r2,
                    round(stddev_samp(residual)::numeric, 5)    AS residual_vol,
                    count(*) FILTER (WHERE abs(residual_z) >= 2) AS swing_days

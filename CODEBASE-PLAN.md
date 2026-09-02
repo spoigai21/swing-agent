@@ -1113,3 +1113,82 @@ bounded and is the more standard "idiosyncratic share". **Recommend the
 variance-based version** for `swing compare`, keeping the per-day ratio as a
 separate raw field. Needs confirming against `insight-agent-guide.md`, still
 missing.
+
+---
+
+# 14 — Step 3 complete: decomposition, swings, onset (2026-09-01)
+
+## 14.1 What was built
+
+| Module | Role |
+|---|---|
+| `analysis/factors.py` | Two-stage rolling fit -> `daily_factors`. Sectors first. |
+| `analysis/decompose.py` | Single-day load + the user-facing sentence |
+| `analysis/onset.py` | Locate the move onset from 5-min bars |
+| `analysis/windows.py` | `swing_type` -> (pre_move, post_move) |
+| `analysis/swings.py` | z-threshold, drift, volume_z, earnings_mode, capture-on-detect |
+| `scripts/gate1_verify.py` | Residual plot + onset hand-check table |
+
+CLI: `swing factors`, `swing detect`, `swing onsets`, and `swing stats` /
+`swing compare` now backed by real data.
+
+## 14.2 Results
+
+**5,746 factor rows** across 15 entities (SNDK correctly gated to
+`insufficient_history` at 382 bars < 400). **371 swings**: 361 daily, 10 drift.
+
+Betas are credible after orthogonalisation — every `beta_mkt` positive, semis
+high (MU 2.58, MRVL 2.51, NVDA 1.87), defensives low (NFLX 0.61, TTWO 0.69).
+Swing rate 4.4-7.8% of days, right where |z| >= 2 should land under normality.
+
+**This answers the open question in `data-sources.md` A.2**: MU's R^2 (0.643)
+*beats* AVGO (0.560) and QCOM (0.477), so the memory-vs-logic concern does not
+show up in the fit. **No second sector factor is needed.**
+
+## 14.3 ✅ Gate 1
+
+*"Every spike you flag must look like a real event; known events must appear."*
+The top 10 swings by |z| all carry volume 4.6-28.3 sigma, and 5 of 10 are
+flagged `earnings_mode` from an 8-K Item 2.02. Plot at `data/gate1_residuals.png`.
+
+*"For 10 swings, verify by hand that `onset_ts` lands at the actual start of the
+move and `swing_type` is correct."* Verified. `gap` (116) and `mixed` (151)
+anchor at the session open, which is correct by definition. `intraday` (60)
+spreads across 09:30-11:10.
+
+Worked example — **TSLA 2026-05-11**, detected onset 10:25 ET:
+
+```
+09:30  CAR -1.35%
+10:15  CAR -1.80%
+10:30  CAR -2.51%   <- trough
+11:15  CAR +0.54%
+15:45  CAR +3.82%
+```
+
+The detected onset sits exactly at the trough before a +6.3% run. Onset
+detection is correct on real data.
+
+## 14.4 Bugs found and fixed during Step 3
+
+- **`@dataclass(slots=True)` has no `__dict__`.** The swing UPSERT used
+  `s.__dict__`, so detection ran, captured intraday, and silently wrote **zero
+  rows**. Now `dataclasses.asdict`.
+- **Capture-on-detect is wrong for a backfill.** 371 swings x 3 symbols is
+  1,000+ sequential API calls; it timed out. Split into fast `detect_all()` and
+  a resumable `backfill_onsets()`, with a `has_intraday()` check so the market
+  and sector ETFs are not refetched once per ticker on the same date.
+- **`idio_share` was unbounded.** Averaging `|residual|/|ret|` gave 1.18-3.29
+  because days with near-zero `ret` dominate. `swing compare` now uses
+  `var(residual)/var(ret)`, bounded [0, 1]. It tracks `1 - R^2` closely
+  (MU 0.33 vs R^2 0.647), which cross-validates both. The raw per-day ratio is
+  still stored on `daily_factors`.
+
+## 14.5 Test coverage
+
+76 tests. `test_decompose.py` builds series with **known** betas and asserts the
+orthogonalised fit recovers them, that the orthogonalised factor is uncorrelated
+with the market to 1e-9, and that **the residual is bit-identical** naive vs
+orthogonalised. `test_onset.py` builds bar series whose onset is known by
+construction, including one asserting that keying off the closing bar instead of
+onset admits a post-move article — the bug itself, encoded as a test.

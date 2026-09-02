@@ -122,6 +122,44 @@ def prices() -> int:
     return 0
 
 
+def factors(ticker: str | None = None) -> int:
+    from swing.analysis.factors import compute, entities, rebuild_all
+    from swing.common import logging as log
+
+    log.setup()
+    if ticker:
+        e = next((x for x in entities() if x.ticker == ticker.upper()), None)
+        if not e:
+            print(f"unknown ticker: {ticker}")
+            return 1
+        print(f"{e.ticker}: {len(compute(e))} rows (not written; use without --ticker)")
+        return 0
+    out = rebuild_all()
+    print(f"{sum(out.values()):,} factor rows across {len(out)} entities")
+    return 0
+
+
+def detect(capture: bool = False) -> int:
+    from swing.analysis.swings import detect_all
+    from swing.common import logging as log
+
+    log.setup()
+    out = detect_all(capture_intraday=capture)
+    print(f"{sum(out.values())} swings across {len(out)} entities")
+    return 0
+
+
+def onsets(limit: int | None = None) -> int:
+    from swing.analysis.swings import backfill_onsets
+    from swing.common import logging as log
+
+    log.setup()
+    r = backfill_onsets(limit)
+    print(f"onset backfill: {r['fixed']} fixed, {r['failed']} still without intraday "
+          f"(of {r['considered']} considered)")
+    return 0
+
+
 # --------------------------------------------------------------------------
 # Not built yet — each names the step that unlocks it
 # --------------------------------------------------------------------------
@@ -134,12 +172,45 @@ def why(ticker: str, date: str | None) -> int:
     _needs("Step 5 (the attribution agent)", "`swing why` needs the attributions table")
 
 
-def stats(ticker: str, days: int) -> int:
-    _needs("Step 3 (decomposition)", "`swing stats` needs daily_factors and swings")
+def stats(ticker: str, days: int = 90) -> int:
+    from swing.store import queries
+
+    t = ticker.upper()
+    rows = queries.factors_for(t, days)
+    if not rows:
+        print(f"no factor rows for {t} in the last {days} days")
+        return 1
+    ok = [r for r in rows if r["status"] == "ok"]
+    if not ok:
+        print(f"{t}: {rows[0]['status']}")
+        return 0
+    import statistics as st
+    z = [abs(float(r["residual_z"])) for r in ok]
+    sw = [r for r in ok if abs(float(r["residual_z"])) >= 2]
+    print(f"{t} — last {days} days, n={len(ok)}")
+    print(f"  beta_mkt      {st.mean(float(r['beta_mkt']) for r in ok):>7.2f}")
+    if ok[0]["beta_sector"] is not None:
+        print(f"  beta_sector   {st.mean(float(r['beta_sector']) for r in ok):>7.2f}")
+    print(f"  R^2           {st.mean(float(r['r_squared']) for r in ok):>7.3f}")
+    print(f"  residual vol  {st.mean(float(r['residual_vol_60']) for r in ok) * 100:>7.2f}%")
+    print(f"  mean |z|      {st.mean(z):>7.2f}")
+    print(f"  swing days    {len(sw):>7}  ({len(sw) / len(ok):.1%})")
+    return 0
 
 
-def compare(tickers: list[str], days: int) -> int:
-    _needs("Step 3 (decomposition)", "`swing compare` needs daily_factors.idio_share")
+def compare(tickers: list[str], days: int = 90) -> int:
+    from swing.store import queries
+
+    rows = queries.idio_share_summary([t.upper() for t in tickers], days)
+    if not rows:
+        print("no factor rows for those tickers")
+        return 1
+    print(f"{'ticker':<8}{'n':>5}{'idio_share':>12}{'R^2':>8}{'resid_vol':>11}{'swings':>8}")
+    for r in rows:
+        print(f"{r['ticker']:<8}{r['n']:>5}{float(r['avg_idio_share'] or 0):>12.2f}"
+              f"{float(r['avg_r2'] or 0):>8.3f}{float(r['residual_vol'] or 0) * 100:>10.2f}%"
+              f"{r['swing_days']:>8}")
+    return 0
 
 
 def unexplained(ticker: str | None, days: int) -> int:
