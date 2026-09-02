@@ -22,7 +22,10 @@ onset:
   # yfinance serves 5m bars for the last 60 days only (verified 2026-08-31:
   # period=2mo is rejected outright). Older swings get swing_type='unknown'
   # and the fallback window below, and are flagged as weaker evidence.
-  max_backfill_days: 60
+  # Tiingo IEX serves 5m bars back to at least 2024-09-03 (verified 2026-09-01),
+  # covering the full 2-year history. yfinance caps at 60 days and is the fallback.
+  max_backfill_days: 730
+  yfinance_max_backfill_days: 60
   fallback_window_hours: 48
 
 windows:

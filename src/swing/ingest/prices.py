@@ -17,7 +17,8 @@ from datetime import UTC, date, datetime, timedelta
 import pandas as pd
 
 from swing.common import logging as log
-from swing.common.timeutil import assert_utc
+from swing.common.settings import get_settings
+from swing.common.timeutil import assert_utc, parse_iso
 from swing.ingest.config import all_symbols, stocks
 from swing.store.session import connect
 
@@ -131,7 +132,59 @@ def _action_rows(df: pd.DataFrame, ticker: str) -> list[dict]:
     return out
 
 
+def fetch_intraday_tiingo(ticker: str, day: date, interval_sec: int = 300) -> int:
+    """5-minute bars from Tiingo IEX. PREFERRED over yfinance for intraday.
+
+    yfinance caps 5m history at 60 days; Tiingo IEX serves it back to at least
+    2024-09-03 (verified 2026-09-01, paginating past the 10,000-bar response
+    cap). That covers the entire 2-year price history, so EVERY historical swing
+    can get exact onset detection rather than the 48-hour fallback window.
+
+    This is the difference between onset being exact for the last 60 days and
+    exact for the whole backfill. agent-plan.md 1.3.
+    """
+    import httpx
+
+    settings = get_settings()
+    settings.require("tiingo_api_key")
+    r = httpx.get(
+        f"https://api.tiingo.com/iex/{ticker}/prices",
+        params={"resampleFreq": f"{interval_sec // 60}min",
+                "startDate": day.isoformat(), "endDate": day.isoformat()},
+        headers={"Authorization": f"Token {settings.tiingo_api_key}"},
+        timeout=60,
+    )
+    if r.status_code != 200:
+        logger.warning("tiingo intraday %s %s -> HTTP %s", ticker, day, r.status_code)
+        return 0
+    rows = []
+    for b in r.json():
+        ts = parse_iso(b["date"])
+        rows.append({
+            "ticker": ticker, "ts": assert_utc(ts), "interval_sec": interval_sec,
+            "open": _num(b.get("open")), "high": _num(b.get("high")),
+            "low": _num(b.get("low")), "close": _num(b.get("close")),
+            "volume": int(b["volume"]) if b.get("volume") is not None else None,
+        })
+    if not rows:
+        return 0
+    with connect() as conn, conn.cursor() as cur:
+        cur.executemany(UPSERT_INTRADAY, rows)
+    logger.info("%s %s: %d intraday bars (tiingo)", ticker, day, len(rows))
+    return len(rows)
+
+
 def fetch_intraday(ticker: str, day: date, interval_sec: int = 300) -> int:
+    """Capture intraday bars, preferring Tiingo for its far deeper history."""
+    if get_settings().tiingo_api_key:
+        n = fetch_intraday_tiingo(ticker, day, interval_sec)
+        if n:
+            return n
+        logger.info("tiingo returned nothing for %s %s; trying yfinance", ticker, day)
+    return fetch_intraday_yf(ticker, day, interval_sec)
+
+
+def fetch_intraday_yf(ticker: str, day: date, interval_sec: int = 300) -> int:
     """Capture one day of 5-minute bars. Call this the MOMENT a swing is detected.
 
     yfinance serves 5m bars for the last 60 days only (verified: period=2mo is
