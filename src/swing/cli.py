@@ -79,6 +79,19 @@ def build_parser() -> argparse.ArgumentParser:
 
     ob = sub.add_parser("onsets", help="backfill intraday + onset for swings lacking it")
     ob.add_argument("--limit", type=int)
+
+    rt = sub.add_parser("retrieve", help="build ranked clusters for swings")
+    rt.add_argument("--swing", type=int, help="one swing id")
+    rt.add_argument("--limit", type=int)
+
+    an = sub.add_parser("annotate", help="hand-label swings with the true catalyst")
+    an.add_argument("--blind", action="store_true",
+                    help="hide retrieval until you commit (measures recall)")
+    an.add_argument("--ticker")
+    an.add_argument("--limit", type=int, default=10)
+    an.add_argument("--progress", action="store_true")
+
+    sub.add_parser("metrics", help="the five evaluation metrics")
     sub.add_parser("dbinit", help="apply the database schema (idempotent)")
     return p
 
@@ -107,6 +120,12 @@ def dispatch(args: argparse.Namespace) -> int:
             return commands.detect(args.capture)
         case "onsets":
             return commands.onsets(args.limit)
+        case "retrieve":
+            return commands.retrieve(args.swing, args.limit)
+        case "annotate":
+            return commands.annotate(args.blind, args.ticker, args.limit, args.progress)
+        case "metrics":
+            return commands.metrics()
         case "why":
             return commands.why(args.ticker, args.date)
         case "stats":

@@ -1192,3 +1192,96 @@ with the market to 1e-9, and that **the residual is bit-identical** naive vs
 orthogonalised. `test_onset.py` builds bar series whose onset is known by
 construction, including one asserting that keying off the closing bar instead of
 onset admits a post-move article — the bug itself, encoded as a test.
+
+---
+
+# 15 — Step 4: retrieval and dedup (2026-09-02)
+
+## 15.1 What was built
+
+| Module | Role |
+|---|---|
+| `analysis/dedup.py` | Single-link agglomerative clustering + MinHash merge |
+| `analysis/rank.py` | The §2.3 score: semantic + timing + tier + novelty |
+| `analysis/novelty.py` | Heuristic `1 - max_cos(trailing 30d)` |
+| `analysis/retrieval.py` | swing -> windows -> clusters -> ranked -> persisted |
+| `eval/annotate.py` | Blind + assisted annotation CLI |
+| `eval/harness.py` | The five metrics |
+
+CLI: `swing retrieve`, `swing annotate [--blind]`, `swing metrics`.
+
+Built clusters for **472 swings**; **66 have pre-move coverage**.
+
+## 15.2 Bugs found and fixed
+
+- **pgvector types were never registered with psycopg**, so every `vector`
+  column came back as a ~15KB string and clustering crashed on
+  `float(...)`. `store/session.py` now calls `register_vector`, and
+  `common/vectors.py` gives one coercion used by every consumer.
+- **The novelty corpus contained the articles being scored.** `trailing_corpus`
+  ended at `onset`, which is *after* the pre-move window starts, so every
+  cluster matched itself at cosine 1.0 and novelty was uniformly **0.00** —
+  silently disabling the signal while appearing to work. It now takes
+  `exclude_after=window.start`; novelty is 0.05-0.31 on real data.
+- **Ranking had no query vector**, so `semantic_relevance` returned a flat 0.5
+  for everything and the score degenerated to timing + tier. On the NVDA
+  2026-08-27 earnings swing the true catalyst (8-K Item 2.02) ranked **#5**,
+  behind a GeForce NOW gaming press release that happened to be closer to the
+  open. `retrieval.query_text()` now builds a move-anchored query
+  ("<ticker> <name> stock fell X% — earnings, guidance, revenue, analyst
+  rating..."); semantic scores spread 0.765-0.878 and the earnings release moved
+  #6 -> #2, the 8-K #5 -> #3.
+- **Tiingo had no retry or rate limiting.** A historical onset backfill fires
+  hundreds of requests and the free tier 429s on bursts; `fetch_intraday_tiingo`
+  returned 0 bars and swings silently fell back to the 48h window, which looks
+  like missing data rather than throttling. Now paced at 1.2s with exponential
+  backoff.
+
+## 15.3 ⚠️ Gate 2 is blocked on article accumulation, not on code
+
+Gate 2 wants recall@10 >= 0.80 over >= 30 **blind** annotations. Current
+coverage makes that impossible to measure honestly:
+
+| | |
+|---|---|
+| swings with any pre-move cluster | 66 of 472 |
+| swings with **3+** pre-move clusters | **3** |
+| swings since 2026-08-01 with coverage | 6 |
+| cluster sizes | 140 singletons, 13 pairs, 3 triples, 1 quad |
+
+Two consequences:
+
+1. **recall@10 would be near-trivially 1.0.** With 1-2 clusters in a window,
+   "is the true catalyst in the top 10" is answered by whether we hold the
+   article at all — not by whether ranking works. The metric would look
+   excellent and measure nothing.
+2. **Dedup thresholds cannot be tuned yet.** The plan says to dump the largest
+   clusters and read them, tuning on real syndication patterns. The largest
+   cluster has 4 members. There is nothing to tune against, and — per §12 —
+   there is no wire syndication in this stack to collapse anyway.
+
+This is exactly what the plan predicted: *"your annotation set can only cover
+dates where you hold articles"*, and *"build in strict phase order and you'll
+arrive at evaluation in six weeks holding six weeks of news."* Live news capture
+started 2026-08-30. EDGAR reaches back to 2023, which is why 66 swings have some
+coverage, but news-side context does not exist for historical dates.
+
+**The machinery is complete and tested; the data is three days old.**
+
+## 15.4 What unblocks Gate 2
+
+1. **Time.** Keep the collector running. Coverage grows every day; at ~200
+   articles/day the 90-day Gate 0 target arrives around late November 2026.
+2. **Blind annotations — yours to do.** `swing annotate --blind` shows the
+   decomposition, swing_type, onset and volume_z, takes your independently
+   researched answer, and only *then* reveals what retrieval returned. Do these
+   before tuning ranking weights so you are not anchored. Budget ~10 minutes
+   each; 30 of them is the difference between knowing recall and guessing it.
+3. Then retune `w_semantic` / `w_timing` / `w_tier`. The NVDA case suggests
+   **timing may be over-weighted for gap moves** — within an overnight window
+   every article is equally "pre-move", so minutes-before-open is not evidence
+   of causality, yet the 12h half-life gives a 09:00 press release 0.97 against
+   0.37 for the prior evening's 8-K.
+
+Step 5 (the attribution agent) does **not** depend on Gate 2 and can proceed:
+its inputs are clusters, which now exist.

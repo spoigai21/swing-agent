@@ -22,8 +22,9 @@ from tenacity import (
 
 from swing.common.settings import get_settings
 
-SEC_MIN_INTERVAL = 0.12  # seconds between SEC requests (limit is 10/s)
+SEC_MIN_INTERVAL = 0.12   # seconds between SEC requests (limit is 10/s)
 RSS_MIN_INTERVAL = 0.25
+TIINGO_MIN_INTERVAL = 1.2  # Tiingo free tier 429s on bursts; pace deliberately
 
 
 class _RateLimiter:
@@ -44,6 +45,7 @@ class _RateLimiter:
 
 _sec_limiter = _RateLimiter(SEC_MIN_INTERVAL)
 _rss_limiter = _RateLimiter(RSS_MIN_INTERVAL)
+_tiingo_limiter = _RateLimiter(TIINGO_MIN_INTERVAL)
 
 RETRYABLE = (httpx.TimeoutException, httpx.TransportError, httpx.HTTPStatusError)
 
@@ -99,4 +101,27 @@ def feed_get(url: str, timeout: float = 20.0) -> httpx.Response:
     }
     with httpx.Client(timeout=timeout, follow_redirects=True) as client:
         resp = client.get(url, headers=headers)
+    return _raise_for_retryable(resp)
+
+
+@retry(
+    retry=retry_if_exception_type(RETRYABLE),
+    wait=wait_exponential(multiplier=2, min=5, max=120),
+    stop=stop_after_attempt(4),
+    reraise=True,
+)
+def tiingo_get(url: str, params: dict, timeout: float = 60.0) -> httpx.Response:
+    """GET against Tiingo with pacing and 429 backoff.
+
+    The free tier 429s on bursts. A historical onset backfill fires hundreds of
+    requests, and without this it silently returns zero bars — swings then fall
+    back to the 48h window and the failure looks like missing data rather than
+    throttling.
+    """
+    _tiingo_limiter.wait()
+    from swing.common.settings import get_settings
+
+    headers = {"Authorization": f"Token {get_settings().tiingo_api_key}"}
+    with httpx.Client(timeout=timeout, follow_redirects=True) as client:
+        resp = client.get(url, params=params, headers=headers)
     return _raise_for_retryable(resp)

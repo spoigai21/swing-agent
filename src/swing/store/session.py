@@ -6,10 +6,12 @@ SQLAlchemy models arrive in Step 1.
 """
 from __future__ import annotations
 
+import logging
 from contextlib import contextmanager
 from pathlib import Path
 
 import psycopg
+from pgvector.psycopg import register_vector
 from psycopg.rows import dict_row
 
 from swing.common.settings import get_settings
@@ -25,7 +27,17 @@ def dsn() -> str:
 
 @contextmanager
 def connect(autocommit: bool = True):
+    """Connection with pgvector types registered.
+
+    Without register_vector, a `vector` column comes back as its text
+    representation and every consumer has to parse it by hand.
+    """
     with psycopg.connect(dsn(), autocommit=autocommit, row_factory=dict_row) as conn:
+        try:
+            register_vector(conn)
+        except Exception as exc:  # noqa: BLE001 - vector type may not exist yet
+            # Only expected before `swing dbinit` has created the extension.
+            logging.getLogger("store.session").debug("register_vector skipped: %s", exc)
         yield conn
 
 

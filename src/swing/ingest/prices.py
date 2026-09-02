@@ -143,17 +143,18 @@ def fetch_intraday_tiingo(ticker: str, day: date, interval_sec: int = 300) -> in
     This is the difference between onset being exact for the last 60 days and
     exact for the whole backfill. agent-plan.md 1.3.
     """
-    import httpx
+    from swing.common.http import tiingo_get
 
-    settings = get_settings()
-    settings.require("tiingo_api_key")
-    r = httpx.get(
-        f"https://api.tiingo.com/iex/{ticker}/prices",
-        params={"resampleFreq": f"{interval_sec // 60}min",
-                "startDate": day.isoformat(), "endDate": day.isoformat()},
-        headers={"Authorization": f"Token {settings.tiingo_api_key}"},
-        timeout=60,
-    )
+    get_settings().require("tiingo_api_key")
+    try:
+        r = tiingo_get(
+            f"https://api.tiingo.com/iex/{ticker}/prices",
+            {"resampleFreq": f"{interval_sec // 60}min",
+             "startDate": day.isoformat(), "endDate": day.isoformat()},
+        )
+    except Exception as exc:  # noqa: BLE001 - retries exhausted; caller falls back
+        logger.warning("tiingo intraday %s %s failed after retries: %s", ticker, day, exc)
+        return 0
     if r.status_code != 200:
         logger.warning("tiingo intraday %s %s -> HTTP %s", ticker, day, r.status_code)
         return 0

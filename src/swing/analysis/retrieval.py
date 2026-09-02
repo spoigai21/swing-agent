@@ -1,0 +1,184 @@
+"""Assemble a swing's candidate clusters end to end.
+
+  swing -> pre/post windows -> articles -> clusters -> ranked -> persisted
+
+The agent reasons over CLUSTERS, never raw articles (agent-plan.md 2.2), and the
+pre/post split is never merged (2.1) — that split is the backbone of the
+system's honesty.
+"""
+from __future__ import annotations
+
+from datetime import datetime, time, timedelta
+
+import numpy as np
+
+from swing.analysis.dedup import ClusterView, cluster_window
+from swing.analysis.novelty import score as novelty_score
+from swing.analysis.novelty import trailing_corpus
+from swing.analysis.rank import score_clusters
+from swing.analysis.windows import windows_for
+from swing.common import logging as log
+from swing.common.timeutil import UTC
+from swing.ingest.config import thresholds
+from swing.store.session import connect
+
+logger = log.get("analysis.retrieval")
+
+
+def _articles_in(tickers: list[str], start: datetime, end: datetime,
+                 max_tier: int = 3) -> list[dict]:
+    with connect() as conn:
+        rows = conn.execute(
+            """
+            SELECT id, url, source, source_tier, headline, summary, published_at,
+                   tickers, event_hint, embedding, dup_group_id
+            FROM articles
+            WHERE tickers && %s AND published_at >= %s AND published_at < %s
+              AND source_tier <= %s AND embedding IS NOT NULL
+            ORDER BY published_at
+            """,
+            (tickers, start, end, max_tier),
+        ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def query_text(swing: dict) -> str:
+    """The query a cluster's relevance is measured against.
+
+    Articles are already ticker-filtered, so relevance must separate
+    market-moving material from routine company PR. Anchoring the query on the
+    stock move and its financial vocabulary does that: without it every cluster
+    scores a flat 0.5, ranking degenerates to timing alone, and a product press
+    release outranks the earnings 8-K purely for being closer to the open.
+    """
+    from swing.ingest.config import stocks
+
+    name = (stocks().get(swing["ticker"], {}) or {}).get("name", swing["ticker"])
+    direction = "rose" if float(swing["total_return"]) >= 0 else "fell"
+    pct = abs(float(swing["total_return"])) * 100
+    return (f"{swing['ticker']} {name} stock {direction} {pct:.1f}% — "
+            "earnings, guidance, revenue, analyst rating, regulatory or "
+            "acquisition news moving the share price")
+
+
+def _query_vec(swing: dict):
+    from swing.ingest.normalize import _embed_texts
+
+    try:
+        return np.array(_embed_texts([query_text(swing)])[0], dtype=float)
+    except Exception:
+        logger.exception("query embedding failed for swing %s", swing["id"])
+        return None
+
+
+def _swing_row(swing_id: int) -> dict | None:
+    with connect() as conn:
+        return conn.execute("SELECT * FROM swings WHERE id=%s", (swing_id,)).fetchone()
+
+
+def _prev_close_ts(ticker: str, d) -> datetime:
+    with connect() as conn:
+        r = conn.execute(
+            "SELECT ts FROM bars WHERE ticker=%s AND ts::date < %s ORDER BY ts DESC LIMIT 1",
+            (ticker, d)).fetchone()
+    # Bars are stamped at midnight UTC; the session actually closed at 20:00 UTC.
+    base = r["ts"].date() if r else (d - timedelta(days=1))
+    return datetime.combine(base, time(20, 0), tzinfo=UTC)
+
+
+def build_for_swing(swing_id: int, persist: bool = True) -> dict[str, list[ClusterView]]:
+    swing = _swing_row(swing_id)
+    if not swing:
+        raise ValueError(f"no swing {swing_id}")
+    if swing["onset_ts"] is None:
+        logger.warning("swing %s has no onset_ts; skipping", swing_id)
+        return {"pre_move": [], "post_move": []}
+
+    tickers = [swing["ticker"]]
+    onset = swing["onset_ts"]
+    prev_close = _prev_close_ts(swing["ticker"], swing["d"])
+    session_open = datetime.combine(swing["d"], time(13, 30), tzinfo=UTC)
+    drift_start = None
+    if swing["kind"] == "drift" and swing["drift_window"]:
+        drift_start = onset - timedelta(days=int(swing["drift_window"]))
+
+    pre_w, post_w = windows_for(swing["swing_type"], onset, prev_close,
+                                session_open, drift_start)
+    max_tier = int(thresholds()["retrieval"]["exclude_tier"]) - 1
+
+    out: dict[str, list[ClusterView]] = {}
+    corpus = trailing_corpus(tickers, onset, exclude_after=pre_w.start)
+    qvec = _query_vec(swing)
+    for timing, w in (("pre_move", pre_w), ("post_move", post_w)):
+        arts = _articles_in(tickers, w.start, w.end, max_tier)
+        clusters = cluster_window(arts, timing)
+        if timing == "pre_move":
+            nov = {c.canonical_article: novelty_score(c, corpus) for c in clusters}
+        else:
+            nov = None
+        # Rank pre-move on the full score; post-move is context, ordered by time.
+        if timing == "pre_move":
+            clusters = score_clusters(clusters, onset, qvec, nov)
+        else:
+            clusters = sorted(clusters, key=lambda c: c.earliest_published)
+            for i, c in enumerate(clusters, start=1):
+                c.rank = i
+        out[timing] = clusters
+
+    if persist:
+        _persist(swing_id, out)
+    return out
+
+
+INSERT_CLUSTER = """
+INSERT INTO clusters (swing_id, timing, canonical_article, member_count,
+                      distinct_sources, earliest_published, best_tier,
+                      semantic_score, timing_score, novelty_score, rank_score, rank)
+VALUES (%(swing_id)s, %(timing)s, %(canonical_article)s, %(member_count)s,
+        %(distinct_sources)s, %(earliest_published)s, %(best_tier)s,
+        %(semantic_score)s, %(timing_score)s, %(novelty_score)s, %(rank_score)s, %(rank)s)
+RETURNING id
+"""
+
+
+def _persist(swing_id: int, groups: dict[str, list[ClusterView]]) -> None:
+    with connect() as conn, conn.cursor() as cur:
+        cur.execute("DELETE FROM clusters WHERE swing_id=%s", (swing_id,))
+        for timing, clusters in groups.items():
+            for c in clusters:
+                cur.execute(INSERT_CLUSTER, {
+                    "swing_id": swing_id, "timing": timing,
+                    "canonical_article": c.canonical_article,
+                    "member_count": c.member_count,
+                    "distinct_sources": c.distinct_sources,
+                    "earliest_published": c.earliest_published,
+                    "best_tier": c.best_tier,
+                    "semantic_score": c.semantic_score, "timing_score": c.timing_score,
+                    "novelty_score": c.novelty_score, "rank_score": c.rank_score,
+                    "rank": c.rank,
+                })
+                cid = cur.fetchone()["id"]
+                cur.executemany(
+                    "INSERT INTO cluster_members (cluster_id, article_id) VALUES (%s, %s) "
+                    "ON CONFLICT DO NOTHING",
+                    [(cid, aid) for aid in c.article_ids])
+
+
+def build_all(limit: int | None = None, only_with_articles: bool = True) -> dict[str, int]:
+    with connect() as conn:
+        rows = conn.execute(
+            "SELECT id FROM swings WHERE onset_ts IS NOT NULL ORDER BY d DESC"
+            + (f" LIMIT {int(limit)}" if limit else "")
+        ).fetchall()
+    built = with_pre = 0
+    for r in rows:
+        try:
+            g = build_for_swing(r["id"])
+        except Exception:
+            logger.exception("cluster build failed for swing %s", r["id"])
+            continue
+        built += 1
+        if g["pre_move"]:
+            with_pre += 1
+    logger.info("built clusters for %d swings (%d have pre-move coverage)", built, with_pre)
+    return {"swings": built, "with_pre_move": with_pre}

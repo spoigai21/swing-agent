@@ -9,8 +9,12 @@ src/swing/agent/llm.py
 src/swing/agent/schema.py
 src/swing/analysis/__init__.py
 src/swing/analysis/decompose.py
+src/swing/analysis/dedup.py
 src/swing/analysis/factors.py
+src/swing/analysis/novelty.py
 src/swing/analysis/onset.py
+src/swing/analysis/rank.py
+src/swing/analysis/retrieval.py
 src/swing/analysis/swings.py
 src/swing/analysis/windows.py
 src/swing/common/__init__.py
@@ -18,8 +22,11 @@ src/swing/common/http.py
 src/swing/common/logging.py
 src/swing/common/settings.py
 src/swing/common/timeutil.py
+src/swing/common/vectors.py
 src/swing/common/versioning.py
 src/swing/eval/__init__.py
+src/swing/eval/annotate.py
+src/swing/eval/harness.py
 src/swing/ingest/__init__.py
 src/swing/ingest/collector.py
 src/swing/ingest/config.py
@@ -46,6 +53,7 @@ src/swing_agent.egg-info/requires.txt
 src/swing_agent.egg-info/top_level.txt
 tests/test_config.py
 tests/test_decompose.py
+tests/test_dedup.py
 tests/test_normalize.py
 tests/test_onset.py
 tests/test_schema.py

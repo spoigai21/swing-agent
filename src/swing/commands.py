@@ -160,6 +160,52 @@ def onsets(limit: int | None = None) -> int:
     return 0
 
 
+def retrieve(swing_id: int | None = None, limit: int | None = None) -> int:
+    from swing.analysis.retrieval import build_all, build_for_swing
+    from swing.common import logging as log
+
+    log.setup()
+    if swing_id:
+        g = build_for_swing(swing_id)
+        for timing in ("pre_move", "post_move"):
+            print(f"\n{timing}: {len(g[timing])} clusters")
+            for c in g[timing][:10]:
+                print(f"  #{c.rank} score={c.rank_score:.2f} tier={c.best_tier} "
+                      f"srcs={c.distinct_sources} {c.earliest_published:%m-%d %H:%M}Z  "
+                      f"{c.headline[:52]}")
+        return 0
+    r = build_all(limit)
+    print(f"built clusters for {r['swings']} swings; "
+          f"{r['with_pre_move']} have pre-move coverage")
+    return 0
+
+
+def annotate(blind: bool = False, ticker: str | None = None, limit: int = 10,
+             show_progress: bool = False) -> int:
+    from swing.eval.annotate import _candidates, annotate_one, progress
+
+    if show_progress:
+        progress()
+        return 0
+    rows = _candidates(blind, ticker, limit)
+    if not rows:
+        print("nothing left to annotate matching that filter")
+        return 0
+    print(f"{len(rows)} swings queued ({'BLIND' if blind else 'assisted'} mode). "
+          "Ctrl-C to stop.")
+    for s in rows:
+        annotate_one(s, blind)
+    progress()
+    return 0
+
+
+def metrics() -> int:
+    from swing.eval.harness import print_report
+
+    print_report()
+    return 0
+
+
 # --------------------------------------------------------------------------
 # Not built yet — each names the step that unlocks it
 # --------------------------------------------------------------------------
