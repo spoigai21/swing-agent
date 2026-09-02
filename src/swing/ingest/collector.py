@@ -18,7 +18,7 @@ from pathlib import Path
 
 from swing.common import logging as log
 from swing.common.settings import REPO_ROOT, get_settings
-from swing.ingest import edgar, health, news_rss
+from swing.ingest import edgar, health, news_finnhub, news_rss, normalize
 from swing.ingest.config import edgar_config, feeds
 
 logger = log.get("collector")
@@ -58,6 +58,19 @@ def build_jobs() -> list[Job]:
                 fn=(lambda s=spec: news_rss.poll_feed(s)),
             )
         )
+    # Finnhub company news: one call per ticker, daily is plenty. Recommendation
+    # trend changes slowly, so twice a day.
+    jobs.append(Job(name="finnhub-news", interval=6 * 3600.0,
+                    fn=lambda: news_finnhub.poll(days=7)))
+    jobs.append(Job(name="finnhub-recs", interval=12 * 3600.0,
+                    fn=news_finnhub.poll_recommendations))
+
+    # Drain articles_raw -> articles continuously. Without this the backlog
+    # grows unbounded and nothing downstream (retrieval, clustering) sees new
+    # articles at all.
+    jobs.append(Job(name="normalize", interval=300.0,
+                    fn=lambda: normalize.normalize_all()["written"]))
+
     jobs.append(
         # Every 30 min: staleness budgets are 0.7-1.0h, so a 6-hourly check
         # would let a dead feed run most of its budget before anyone looked.
