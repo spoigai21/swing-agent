@@ -169,6 +169,10 @@ publisher_tiers:
   "pr newswire": 2
   prnewswire: 2
   accesswire: 2
+  # Finnhub spells it "DowJones". Lookup is now spelling-insensitive, but list
+  # the variant so the intent is visible: this is the only genuine tier-2 wire
+  # copy the free stack yields (CODEBASE-PLAN 12).
+  dowjones: 2
 
   # Tier 3 — analysis and framing
   wsj: 3
@@ -216,6 +220,13 @@ publisher_tiers:
   insidermonkey: 4
   "24/7 wall st": 4
   thestreet: 4
+  # Explicit rather than relying on the tier-4 default, so the survey of what
+  # Finnhub actually returns is legible in config.
+  yahoo: 4
+  finnhub: 4
+  chartmill: 4
+  stocktwits: 4
+  "" : 4
 
 # ---------------------------------------------------------------------------
 # Marketaux: key verified 2026-09-01, DELIBERATELY NOT POLLED.

@@ -24,7 +24,8 @@ from swing.common.settings import get_settings
 
 SEC_MIN_INTERVAL = 0.12   # seconds between SEC requests (limit is 10/s)
 RSS_MIN_INTERVAL = 0.25
-TIINGO_MIN_INTERVAL = 1.2  # Tiingo free tier 429s on bursts; pace deliberately
+TIINGO_MIN_INTERVAL = 1.2   # Tiingo free tier 429s on bursts; pace deliberately
+FINNHUB_MIN_INTERVAL = 1.1  # free tier is 60 calls/min
 
 
 class _RateLimiter:
@@ -46,6 +47,7 @@ class _RateLimiter:
 _sec_limiter = _RateLimiter(SEC_MIN_INTERVAL)
 _rss_limiter = _RateLimiter(RSS_MIN_INTERVAL)
 _tiingo_limiter = _RateLimiter(TIINGO_MIN_INTERVAL)
+_finnhub_limiter = _RateLimiter(FINNHUB_MIN_INTERVAL)
 
 RETRYABLE = (httpx.TimeoutException, httpx.TransportError, httpx.HTTPStatusError)
 
@@ -124,4 +126,28 @@ def tiingo_get(url: str, params: dict, timeout: float = 60.0) -> httpx.Response:
     headers = {"Authorization": f"Token {get_settings().tiingo_api_key}"}
     with httpx.Client(timeout=timeout, follow_redirects=True) as client:
         resp = client.get(url, params=params, headers=headers)
+    return _raise_for_retryable(resp)
+
+
+@retry(
+    retry=retry_if_exception_type(RETRYABLE),
+    wait=wait_exponential(multiplier=2, min=5, max=120),
+    stop=stop_after_attempt(5),
+    reraise=True,
+)
+def finnhub_get(path: str, params: dict, timeout: float = 30.0) -> httpx.Response:
+    """GET against Finnhub with pacing and 429 backoff.
+
+    The free tier allows 60 calls/min. A news backfill fires hundreds of
+    requests; without pacing it 429s and the chunks are silently skipped, which
+    looks like "no news existed then" rather than throttling.
+    """
+    _finnhub_limiter.wait()
+    from swing.common.settings import get_settings
+
+    settings = get_settings()
+    settings.require("finnhub_api_key")
+    with httpx.Client(timeout=timeout, follow_redirects=True) as client:
+        resp = client.get("https://finnhub.io/api/v1" + path,
+                          params={**params, "token": settings.finnhub_api_key})
     return _raise_for_retryable(resp)

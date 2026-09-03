@@ -65,6 +65,10 @@ def build_parser() -> argparse.ArgumentParser:
     bf.add_argument("--years", type=int, default=2)
     bf.add_argument("--symbols", nargs="*")
 
+    nb = sub.add_parser("backfill-news", help="historical company news (unblocks Gate 2)")
+    nb.add_argument("--months", type=int, default=12)
+    nb.add_argument("--tickers", nargs="*")
+
     nz = sub.add_parser("normalize", help="articles_raw -> articles (tier, tag, embed)")
     nz.add_argument("--limit", type=int, default=None, help="one batch of this size")
 
@@ -110,6 +114,8 @@ def dispatch(args: argparse.Namespace) -> int:
             return commands.dbinit()
         case "backfill":
             return commands.backfill(args.years, args.symbols)
+        case "backfill-news":
+            return commands.backfill_news(args.months, args.tickers)
         case "normalize":
             return commands.normalize(args.limit)
         case "prices":

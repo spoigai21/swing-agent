@@ -29,9 +29,20 @@ logger = log.get("ingest.normalize")
 DEFAULT_TIER = 4  # unlisted publisher -> excluded
 
 
+def _norm_publisher(name: str) -> str:
+    """Fold a publisher name to a comparable key.
+
+    Publishers arrive spelled inconsistently across pipes: Finnhub sends
+    "DowJones" while the config lists "dow jones". That gap silently dropped
+    genuine Dow Jones wire copy to tier 4. Strip everything but alphanumerics
+    so spelling variants collapse to one key.
+    """
+    return re.sub(r"[^a-z0-9]", "", (name or "").lower())
+
+
 @lru_cache(maxsize=1)
 def _publisher_tiers() -> dict[str, int]:
-    return {k.lower().strip(): int(v) for k, v in sources().get("publisher_tiers", {}).items()}
+    return {_norm_publisher(k): int(v) for k, v in sources().get("publisher_tiers", {}).items()}
 
 
 @lru_cache(maxsize=1)
@@ -79,11 +90,11 @@ def resolve_tier(row: dict[str, Any]) -> int:
 
     # Finnhub company-news carries the real publisher in raw.source.
     for key in ("publisher", "source"):
-        v = (raw.get(key) or "").strip().lower()
+        v = _norm_publisher(raw.get(key) or "")
         if v and v in tiers:
             return tiers[v]
 
-    src = (row.get("source") or "").strip().lower()
+    src = _norm_publisher(row.get("source") or "")
     if src in tiers:
         return tiers[src]
     if isinstance(raw.get("source_tier"), int):

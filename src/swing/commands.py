@@ -96,6 +96,21 @@ def backfill(years: int = 2, symbols: list[str] | None = None) -> int:
     return 0
 
 
+def backfill_news(months: int = 12, tickers: list[str] | None = None) -> int:
+    from datetime import UTC, datetime, timedelta
+
+    from swing.common import logging as log
+    from swing.ingest.news_finnhub import backfill
+
+    log.setup()
+    end = datetime.now(UTC).date()
+    start = end - timedelta(days=int(months * 30.44))
+    n = backfill(start, end, tickers=tickers or None)
+    print(f"{n:,} historical articles stored ({start} -> {end}). "
+          "Run `swing normalize` next.")
+    return 0
+
+
 def normalize(limit: int | None = None) -> int:
     from swing.common import logging as log
     from swing.ingest.normalize import normalize_all, normalize_batch

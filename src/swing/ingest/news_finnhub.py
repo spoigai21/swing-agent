@@ -11,13 +11,11 @@ in the pipeline is worse than none.
 """
 from __future__ import annotations
 
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 
 import httpx
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential
 
 from swing.common import logging as log
-from swing.common.settings import get_settings
 from swing.ingest.config import stocks
 from swing.store.raw import RawArticle, bump_health, insert_many
 
@@ -26,14 +24,16 @@ BASE = "https://finnhub.io/api/v1"
 SOURCE = "finnhub"
 
 
-@retry(retry=retry_if_exception_type((httpx.TimeoutException, httpx.TransportError)),
-       wait=wait_exponential(multiplier=1, min=2, max=30), stop=stop_after_attempt(4),
-       reraise=True)
 def _get(path: str, params: dict) -> httpx.Response:
-    settings = get_settings()
-    settings.require("finnhub_api_key")
-    return httpx.get(BASE + path, params={**params, "token": settings.finnhub_api_key},
-                     timeout=30)
+    """Paced, 429-aware Finnhub GET.
+
+    The free tier allows 60 calls/min. The previous version retried only on
+    transport errors, so a 429 came back as a normal response, the chunk was
+    skipped, and it looked like "no news existed then" rather than throttling.
+    """
+    from swing.common.http import finnhub_get
+
+    return finnhub_get(path, params)
 
 
 def poll(days: int = 7) -> int:
@@ -118,4 +118,57 @@ def poll_recommendations() -> int:
         n = insert_many(batch)
         bump_health("finnhub-recommendation", n)
         total += n
+    return total
+
+
+def backfill(start: date, end: date, chunk_days: int = 7,
+             tickers: list[str] | None = None) -> int:
+    """Walk company-news backwards in chunks. THE way to unblock Gate 2.
+
+    RSS cannot be backfilled — it serves only the last 20-50 items — but
+    Finnhub's company-news endpoint DOES accept historical date ranges on the
+    free tier, verified 2026-09-03 back to roughly 2025-09 (about 12 months;
+    2025-08 and earlier return nothing).
+
+    That matters because Gate 2 needs blind annotations, and those can only
+    cover dates where we hold articles. Without this you wait months for
+    coverage to accumulate; with it, a year of it arrives in minutes.
+
+    Expect a low keep rate: most Finnhub content is tier 4 and is dropped at
+    normalize. The archive keeps everything regardless.
+    """
+    syms = tickers or list(stocks())
+    total = 0
+    cur = end
+    while cur > start:
+        frm = max(start, cur - timedelta(days=chunk_days))
+        for ticker in syms:
+            try:
+                r = _get("/company-news", {"symbol": ticker,
+                                           "from": frm.isoformat(), "to": cur.isoformat()})
+            except Exception:
+                logger.exception("backfill failed for %s %s..%s", ticker, frm, cur)
+                continue
+            if r.status_code != 200:
+                logger.warning("backfill %s %s -> HTTP %s", ticker, frm, r.status_code)
+                continue
+            batch = []
+            for item in r.json():
+                url, headline, ts = item.get("url"), item.get("headline"), item.get("datetime")
+                if not (url and headline and ts):
+                    continue
+                batch.append(RawArticle(
+                    url=url,
+                    source=(item.get("source") or SOURCE).strip().lower(),
+                    headline=headline,
+                    summary=item.get("summary") or None,
+                    published_at=datetime.fromtimestamp(int(ts), UTC),
+                    raw={"publisher": item.get("source"), "finnhub_id": item.get("id"),
+                         "category": item.get("category"), "ticker": ticker,
+                         "via": SOURCE, "backfill": True},
+                ))
+            total += insert_many(batch)
+        logger.info("backfill %s..%s -> %d stored so far", frm, cur, total)
+        cur = frm
+    bump_health(SOURCE, 0)
     return total
