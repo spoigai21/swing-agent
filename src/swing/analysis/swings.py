@@ -176,20 +176,30 @@ def _onset_for(entity: Entity, d: date, row: dict, capture: bool):
         return fallback(d)
 
 
-UPSERT = """
+_UPSERT_COLS = """
 INSERT INTO swings (ticker, d, kind, drift_window, residual, residual_z, total_return,
                     market_component, sector_component, volume_z, swing_type,
                     onset_ts, onset_source, earnings_mode, entity_type)
 VALUES (%(ticker)s, %(d)s, %(kind)s, %(drift_window)s, %(residual)s, %(residual_z)s,
         %(total_return)s, %(market_component)s, %(sector_component)s, %(volume_z)s,
         %(swing_type)s, %(onset_ts)s, %(onset_source)s, %(earnings_mode)s, %(entity_type)s)
-ON CONFLICT (ticker, d, kind, drift_window) DO UPDATE SET
+"""
+
+_UPSERT_SET = """
+DO UPDATE SET
   residual=EXCLUDED.residual, residual_z=EXCLUDED.residual_z,
   total_return=EXCLUDED.total_return, market_component=EXCLUDED.market_component,
   sector_component=EXCLUDED.sector_component, volume_z=EXCLUDED.volume_z,
   swing_type=EXCLUDED.swing_type, onset_ts=EXCLUDED.onset_ts,
   onset_source=EXCLUDED.onset_source, earnings_mode=EXCLUDED.earnings_mode
 """
+
+# Two statements because the uniqueness is enforced by two PARTIAL indexes, and
+# ON CONFLICT must name the index predicate to use one.
+UPSERT_DAILY = _UPSERT_COLS + "ON CONFLICT (ticker, d, kind) WHERE drift_window IS NULL " + _UPSERT_SET
+UPSERT_DRIFT = (_UPSERT_COLS
+                + "ON CONFLICT (ticker, d, kind, drift_window) WHERE drift_window IS NOT NULL "
+                + _UPSERT_SET)
 
 
 def backfill_onsets(limit: int | None = None) -> dict[str, int]:
@@ -237,8 +247,13 @@ def detect_all(capture_intraday: bool = False, since: date | None = None) -> dic
         if since:
             swings = [s for s in swings if s.d >= since]
         if swings:
+            daily = [asdict(s) for s in swings if s.drift_window is None]
+            drift = [asdict(s) for s in swings if s.drift_window is not None]
             with connect() as conn, conn.cursor() as cur:
-                cur.executemany(UPSERT, [asdict(s) for s in swings])
+                if daily:
+                    cur.executemany(UPSERT_DAILY, daily)
+                if drift:
+                    cur.executemany(UPSERT_DRIFT, drift)
         out[e.ticker] = len(swings)
         logger.info("%s: %d swings", e.ticker, len(swings))
     return out

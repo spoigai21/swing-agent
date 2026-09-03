@@ -151,9 +151,15 @@ CREATE TABLE IF NOT EXISTS swings (
   earnings_mode    boolean NOT NULL DEFAULT false,
   entity_type      text NOT NULL DEFAULT 'stock' CHECK (entity_type IN ('stock','sector')),
   superseded_by    bigint REFERENCES swings(id),
-  created_at       timestamptz NOT NULL DEFAULT now(),
-  UNIQUE (ticker, d, kind, drift_window)
+  created_at       timestamptz NOT NULL DEFAULT now()
 );
+-- NOT a table-level UNIQUE (ticker, d, kind, drift_window): drift_window is NULL
+-- for daily swings and NULL != NULL in Postgres, so the constraint never fires
+-- and every re-detect INSERTs duplicates (101 of 472 before this was caught).
+CREATE UNIQUE INDEX IF NOT EXISTS swings_daily_unique
+  ON swings (ticker, d, kind) WHERE drift_window IS NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS swings_drift_unique
+  ON swings (ticker, d, kind, drift_window) WHERE drift_window IS NOT NULL;
 CREATE INDEX IF NOT EXISTS swings_ticker_d_idx ON swings (ticker, d DESC);
 
 -- Window-scoped semantic clusters, persisted so an attribution's citations

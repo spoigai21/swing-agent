@@ -20,7 +20,6 @@ from sqlalchemy import (
     LargeBinary,
     Numeric,
     Text,
-    UniqueConstraint,
 )
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
@@ -124,7 +123,6 @@ class DailyFactor(Base):
 class Swing(Base):
     __tablename__ = "swings"
     __table_args__ = (
-        UniqueConstraint("ticker", "d", "kind", "drift_window"),
         CheckConstraint("kind IN ('daily', 'drift')", name="swings_kind_check"),
         CheckConstraint(
             "swing_type IN ('gap','intraday','mixed','drift','unknown')",

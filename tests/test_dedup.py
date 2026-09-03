@@ -113,3 +113,28 @@ def test_timing_halflife_is_twelve_hours(hours, expected):
                     earliest_published=ONSET - timedelta(hours=hours), best_tier=3,
                     members=[])
     assert timing_score(c, ONSET) == pytest.approx(expected, abs=0.01)
+
+
+class TestSwingUniqueness:
+    """UNIQUE (ticker, d, kind, drift_window) never fires for daily swings
+    because drift_window is NULL and NULL != NULL in Postgres. 101 of 472 rows
+    were duplicates before this was caught, and the daily batch attributed the
+    same swing twice."""
+
+    def test_schema_uses_partial_indexes_not_a_table_unique(self):
+        from swing.paths import ROOT
+
+        raw = (ROOT / "src/swing/store/schema.sql").read_text()
+        # Strip comments: the explanatory note about the old constraint quotes
+        # it verbatim, and a naive substring check matches the comment.
+        sql = "\n".join(ln for ln in raw.splitlines() if not ln.strip().startswith("--"))
+        assert "UNIQUE (ticker, d, kind, drift_window)" not in sql
+        assert "swings_daily_unique" in sql and "WHERE drift_window IS NULL" in sql
+        assert "swings_drift_unique" in sql
+
+    def test_upserts_name_the_index_predicate(self):
+        from swing.analysis.swings import UPSERT_DAILY, UPSERT_DRIFT
+
+        assert "WHERE drift_window IS NULL" in UPSERT_DAILY
+        assert "WHERE drift_window IS NOT NULL" in UPSERT_DRIFT
+        assert "DO UPDATE" in UPSERT_DAILY and "DO UPDATE" in UPSERT_DRIFT

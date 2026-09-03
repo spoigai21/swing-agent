@@ -60,6 +60,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     b = sub.add_parser("batch", help="run the daily attribution batch")
     b.add_argument("--date")
+    b.add_argument("--limit", type=int, help="cap the run (free-tier daily quota)")
 
     bf = sub.add_parser("backfill", help="pull historical price bars")
     bf.add_argument("--years", type=int, default=2)
@@ -96,6 +97,10 @@ def build_parser() -> argparse.ArgumentParser:
     an.add_argument("--progress", action="store_true")
 
     sub.add_parser("metrics", help="the five evaluation metrics")
+
+    pl = sub.add_parser("placebo", help="confabulation test (uses Gemini quota)")
+    pl.add_argument("--n", type=int, default=30)
+    pl.add_argument("--seed", type=int, default=0)
     sub.add_parser("dbinit", help="apply the database schema (idempotent)")
     return p
 
@@ -132,6 +137,8 @@ def dispatch(args: argparse.Namespace) -> int:
             return commands.annotate(args.blind, args.ticker, args.limit, args.progress)
         case "metrics":
             return commands.metrics()
+        case "placebo":
+            return commands.placebo(args.n, args.seed)
         case "why":
             return commands.why(args.ticker, args.date)
         case "stats":
@@ -143,7 +150,7 @@ def dispatch(args: argparse.Namespace) -> int:
         case "ask":
             return commands.ask(args.question)
         case "batch":
-            return commands.batch(args.date)
+            return commands.batch(args.date, args.limit)
         case _:
             raise SystemExit(f"unknown command: {args.cmd}")
 

@@ -1,5 +1,18 @@
 """Provider abstraction for the attribution model.
 
+⚠️ FREE-TIER DAILY CAPS ARE PER MODEL AND SMALL.
+
+Probed 2026-09-03 with a live key:
+  gemini-2.5-flash, gemini-2.5-flash-lite   ModelNotFound (retired)
+  gemini-3.7-flash                          429, daily cap = 20 requests
+  gemini-3.5-flash, gemini-flash-latest,
+  gemini-flash-lite-latest                  available
+
+agent-plan.md 1.1 warned that Pro free tiers ran as low as 50/day; a
+Flash-class model at 20/day is tighter still. Production is 1-3 attributions a
+day and fits easily, but a Phase 4 placebo sweep is 200 requests and does NOT.
+Iterate against the 30-case smoke set and budget full sweeps across days.
+
 Swapping providers must be one config line (agent-plan.md 1.1), so nothing
 outside this module names a model or a vendor.
 """
@@ -7,7 +20,33 @@ from __future__ import annotations
 
 from typing import Any
 
+from tenacity import retry, retry_if_exception, stop_after_attempt, wait_exponential
+
+from swing.common.http import _RateLimiter
 from swing.common.settings import get_settings
+
+_llm_limiter = _RateLimiter(4.0)   # free tiers throttle per-minute as well as per-day
+
+
+def _is_rate_limit(exc: BaseException) -> bool:
+    return "429" in str(exc) or "RESOURCE_EXHAUSTED" in str(exc)
+
+
+@retry(
+    retry=retry_if_exception(_is_rate_limit),
+    wait=wait_exponential(multiplier=2, min=10, max=120),
+    stop=stop_after_attempt(4),
+    reraise=True,
+)
+def invoke_with_retry(runnable, prompt: str):
+    """Paced, 429-aware invoke. agent-plan.md 3.4 requires this.
+
+    Free-tier quotas throttle by requests-per-minute as well as per-day, and a
+    batch firing attributions back to back will trip RPM long before the daily
+    cap. The batch has no latency requirement, so pacing costs nothing.
+    """
+    _llm_limiter.wait()
+    return runnable.invoke(prompt)
 
 
 def get_llm(temperature: float = 0.0, **kwargs: Any):

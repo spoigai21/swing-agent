@@ -214,6 +214,21 @@ def annotate(blind: bool = False, ticker: str | None = None, limit: int = 10,
     return 0
 
 
+def placebo(n: int = 30, seed: int = 0) -> int:
+    from swing.common import logging as log
+    from swing.eval.placebo import run
+
+    log.setup()
+    r = run(n=n, seed=seed)
+    if not r["n"]:
+        print(r.get("note", "no cases"))
+        return 1
+    print(f"\n  {r['n']} placebo cases, {r['confabulated']} confabulated "
+          f"({r['rate']:.1%})  target < 10%  "
+          f"{'PASS' if r['rate'] < 0.10 else 'FAIL'}")
+    return 0
+
+
 def metrics() -> int:
     from swing.eval.harness import print_report
 
@@ -229,8 +244,66 @@ def _needs(step: str, what: str):
     raise NotImplementedError(f"{what} — lands in {step}")
 
 
-def why(ticker: str, date: str | None) -> int:
-    _needs("Step 5 (the attribution agent)", "`swing why` needs the attributions table")
+def why(ticker: str, date: str | None = None) -> int:
+    """Explain one swing, running the agent if no attribution is stored."""
+    from datetime import date as _date
+
+    from swing.agent.graph import attribute_swing
+    from swing.analysis.decompose import load as load_decomp
+    from swing.store.session import connect
+
+    t = ticker.upper()
+    with connect() as conn:
+        if date:
+            sw = conn.execute(
+                "SELECT * FROM swings WHERE ticker=%s AND d=%s AND kind='daily'",
+                (t, _date.fromisoformat(date))).fetchone()
+        else:
+            sw = conn.execute(
+                "SELECT * FROM swings WHERE ticker=%s AND superseded_by IS NULL "
+                "ORDER BY d DESC LIMIT 1", (t,)).fetchone()
+    if not sw:
+        print(f"no swing found for {t}" + (f" on {date}" if date else ""))
+        return 1
+
+    d = load_decomp(t, sw["d"])
+    print(d.sentence() if d else f"{t} {sw['d']}")
+    print(f"  swing_type={sw['swing_type']}  onset={sw['onset_ts']}  "
+          f"volume_z={float(sw['volume_z'] or 0):+.1f}  earnings_mode={sw['earnings_mode']}")
+
+    with connect() as conn:
+        stored = conn.execute(
+            "SELECT payload, verdict, unexplained_note, model_id, prompt_version, created_at "
+            "FROM attributions WHERE swing_id=%s AND run_kind='production' "
+            "ORDER BY created_at DESC LIMIT 1", (sw["id"],)).fetchone()
+    if stored:
+        payload, verdict = stored["payload"], stored["verdict"]
+        note, meta = stored["unexplained_note"], f"{stored['model_id']} / {stored['prompt_version']}"
+    else:
+        print("\n  (no stored attribution — running the agent)")
+        out = attribute_swing(sw["id"])
+        attr = out.get("attribution")
+        if attr is None:
+            print("  attribution failed")
+            return 1
+        payload = attr.model_dump()
+        verdict, note, meta = attr.verdict, attr.unexplained_note, "fresh"
+
+    print(f"\n  VERDICT: {verdict}   [{meta}]")
+    for c in (payload.get("candidates") or []):
+        print(f"\n  [{c['confidence']}] {c['event_type']}: {c['catalyst']}")
+        print(f"     direction_consistent={c['direction_consistent']} "
+              f"magnitude_plausible={c['magnitude_plausible']}")
+        for e in c.get("evidence") or []:
+            print(f"     - cluster {e['cluster_id']} ({e['timing']}, tier {e['source_tier']}, "
+                  f"{e['distinct_sources']} src) {e['headline'][:56]}")
+    if note:
+        print(f"\n  {note}")
+    if payload.get("source_disagreement"):
+        print(f"\n  disagreement: {payload['source_disagreement']}")
+    if payload.get("reactive_coverage_note"):
+        print(f"  reactive: {payload['reactive_coverage_note']}")
+    return 0
 
 
 def stats(ticker: str, days: int = 90) -> int:
@@ -274,13 +347,89 @@ def compare(tickers: list[str], days: int = 90) -> int:
     return 0
 
 
-def unexplained(ticker: str | None, days: int) -> int:
-    _needs("Step 5 (the attribution agent)", "`swing unexplained` needs attributions.verdict")
+def unexplained(ticker: str | None = None, days: int = 30) -> int:
+    """Unexplained swings mark gaps in source coverage — worth reviewing."""
+    from swing.store import queries
+    from swing.store.session import connect
+
+    sql = """
+        SELECT s.ticker, s.d, s.residual_z, s.volume_z, s.swing_type, a.unexplained_note
+        FROM attributions a JOIN swings s ON s.id = a.swing_id
+        WHERE a.verdict='unexplained' AND a.run_kind='production'
+          AND s.d > current_date - %s::int
+    """
+    params: list = [days]
+    if ticker:
+        sql += " AND s.ticker=%s"
+        params.append(ticker.upper())
+    sql += " ORDER BY abs(s.residual_z) DESC"
+    with connect() as conn:
+        rows = conn.execute(sql, tuple(params)).fetchall()
+    if not rows:
+        print(f"no unexplained swings in the last {days} days")
+    else:
+        print(f"{'ticker':<8}{'date':<12}{'z':>7}{'vol_z':>7}  {'type':<10}note")
+        for r in rows:
+            print(f"{r['ticker']:<8}{r['d']!s:<12}{float(r['residual_z']):>7.2f}"
+                  f"{float(r['volume_z'] or 0):>7.1f}  {r['swing_type']:<10}"
+                  f"{(r['unexplained_note'] or '')[:44]}")
+    rates = queries.unexplained_rate_by_ticker(days * 3)
+    if rates:
+        print("\n  unexplained rate by ticker (the coverage diagnostic):")
+        for r in rates:
+            print(f"    {r['ticker']:<8}{float(r['unexplained_rate'] or 0):>6.0%}  n={r['n']}")
+    return 0
 
 
 def ask(question: str) -> int:
     _needs("Step 5+ (insight agent)", "`swing ask` needs the insight agent and its guardrails")
 
 
-def batch(date: str | None) -> int:
-    _needs("Step 5 (the attribution agent)", "`swing batch` needs the full pipeline")
+def batch(date: str | None = None, limit: int | None = None) -> int:
+    """Daily run: attribute every swing that lacks a production attribution.
+
+    Sector entities are processed FIRST so a stock attribution can reference an
+    already-computed sector story (agent-plan.md 0.1b).
+    """
+    from datetime import date as _date
+
+    from swing.agent.graph import attribute_swing
+    from swing.common import logging as log
+    from swing.store.session import connect
+
+    log.setup()
+    sql = """
+        SELECT s.id, s.ticker, s.d, s.residual_z, s.entity_type
+        FROM swings s
+        WHERE NOT EXISTS (SELECT 1 FROM attributions a
+                          WHERE a.swing_id=s.id AND a.run_kind='production')
+          AND s.onset_ts IS NOT NULL
+    """
+    params: list = []
+    if date:
+        sql += " AND s.d = %s"
+        params.append(_date.fromisoformat(date))
+    sql += " ORDER BY (s.entity_type='sector') DESC, abs(s.residual_z) DESC"
+    if limit:
+        sql += f" LIMIT {int(limit)}"
+    with connect() as conn:
+        rows = conn.execute(sql, tuple(params)).fetchall()
+    if not rows:
+        print("nothing to attribute")
+        return 0
+    print(f"attributing {len(rows)} swings "
+          "(free-tier daily caps are small; use --limit to pace)")
+    counts: dict[str, int] = {}
+    for r in rows:
+        try:
+            out = attribute_swing(r["id"])
+        except Exception as e:  # noqa: BLE001 - one swing must not stop the batch
+            print(f"  {r['ticker']} {r['d']}: FAILED {type(e).__name__}: {str(e)[:60]}")
+            counts["error"] = counts.get("error", 0) + 1
+            continue
+        attr = out.get("attribution")
+        v = attr.verdict if attr else "error"
+        counts[v] = counts.get(v, 0) + 1
+        print(f"  {r['ticker']:<7}{r['d']!s:<12}z={float(r['residual_z']):+6.2f}  {v}")
+    print("\n  " + "  ".join(f"{k}={v}" for k, v in sorted(counts.items())))
+    return 0

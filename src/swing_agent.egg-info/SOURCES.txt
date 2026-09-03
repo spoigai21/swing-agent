@@ -5,8 +5,14 @@ src/swing/cli.py
 src/swing/commands.py
 src/swing/paths.py
 src/swing/agent/__init__.py
+src/swing/agent/abstention.py
+src/swing/agent/graph.py
 src/swing/agent/llm.py
+src/swing/agent/nodes.py
+src/swing/agent/prompts.py
 src/swing/agent/schema.py
+src/swing/agent/state.py
+src/swing/agent/validate.py
 src/swing/analysis/__init__.py
 src/swing/analysis/decompose.py
 src/swing/analysis/dedup.py
@@ -26,7 +32,9 @@ src/swing/common/vectors.py
 src/swing/common/versioning.py
 src/swing/eval/__init__.py
 src/swing/eval/annotate.py
+src/swing/eval/cache.py
 src/swing/eval/harness.py
+src/swing/eval/placebo.py
 src/swing/ingest/__init__.py
 src/swing/ingest/collector.py
 src/swing/ingest/config.py
@@ -51,6 +59,7 @@ src/swing_agent.egg-info/dependency_links.txt
 src/swing_agent.egg-info/entry_points.txt
 src/swing_agent.egg-info/requires.txt
 src/swing_agent.egg-info/top_level.txt
+tests/test_abstention.py
 tests/test_config.py
 tests/test_decompose.py
 tests/test_dedup.py
