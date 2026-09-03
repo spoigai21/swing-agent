@@ -45,21 +45,30 @@ def _feed_tickers() -> dict[str, list[str]]:
 
 
 @lru_cache(maxsize=1)
-def _ticker_patterns() -> dict[str, re.Pattern]:
-    """Ticker symbol plus curated aliases from config.
+def _ticker_patterns() -> dict[str, tuple[re.Pattern, re.Pattern]]:
+    """(symbol_pattern, alias_pattern) per ticker.
 
-    Aliases are curated, never derived from the company name. Deriving them
+    ⚠️ The symbol is matched CASE-SENSITIVELY; aliases are case-insensitive.
+
+    A two-letter ticker matched case-insensitively is a magnet for ordinary
+    words in any language: "MU" tagged the Czech word "mu" in a PR Newswire
+    release, and previously matched "Musk", "Multiple" and "Munich". Company
+    names do not have that problem, so they stay case-insensitive.
+
+    Aliases are curated, never derived from the company name — deriving them
     produced `Take-Two Interactive` -> the bare word "Interactive", which tags
     any article mentioning an interactive anything.
 
-    The alternation MUST be grouped: `(?<!x)A|B|C(?!x)` applies the lookbehind
-    only to A and the lookahead only to C, which silently defeats both guards.
+    The alternation MUST be grouped: `(?<!x)A|B|C(?!x)` binds the lookbehind
+    only to A and the lookahead only to C, silently defeating both guards.
     """
     pats = {}
     for ticker, meta in stocks().items():
-        alts = [ticker, *(meta.get("aliases") or [])]
-        joined = "|".join(re.escape(a) for a in alts)
-        pats[ticker] = re.compile(rf"(?<![A-Za-z0-9])(?:{joined})(?![A-Za-z0-9])", re.IGNORECASE)
+        sym = re.compile(rf"(?<![A-Za-z0-9]){re.escape(ticker)}(?![A-Za-z0-9])")
+        aliases = meta.get("aliases") or []
+        joined = "|".join(re.escape(a) for a in aliases) or r"(?!x)x"
+        alias = re.compile(rf"(?<![A-Za-z0-9])(?:{joined})(?![A-Za-z0-9])", re.IGNORECASE)
+        pats[ticker] = (sym, alias)
     return pats
 
 
@@ -92,7 +101,8 @@ def resolve_tickers(row: dict[str, Any]) -> list[str]:
         return [t.upper() for t in _feed_tickers()[row["source"]]]
 
     text = f"{row.get('headline') or ''} {row.get('summary') or ''}"
-    return sorted(t for t, pat in _ticker_patterns().items() if pat.search(text))
+    return sorted(t for t, (sym, alias) in _ticker_patterns().items()
+                  if sym.search(text) or alias.search(text))
 
 
 def event_hint(row: dict[str, Any]) -> str | None:

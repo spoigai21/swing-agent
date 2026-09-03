@@ -75,7 +75,7 @@ feeds:
      url: "https://ir.tesla.com/rss/news-releases.xml",
      enabled: false, block: "404 - SPA, no feed at this path"}
 
-  # ---------- Tier 1: newswire press-release distributors ----------
+  # ---------- Tier 2: newswire press-release distributors ----------
   # These carry COMPANY-ISSUED press releases, which agent-plan.md 0.5 defines
   # as Tier 1 ("company press releases"), not Tier 2 journalism.
   #
@@ -87,18 +87,18 @@ feeds:
   # dropped by ticker tagging -- same as the WSJ feeds, where 80 of 446 matched.
   # Verified 2026-09-01: BW nanotech carried NVIDIA and Tesla; PRN window holds
   # 20 items over ~2.4h, so 15-minute polling loses nothing.
-  - {id: bw_tech, source: businesswire, tier: 1, tickers: [], poll_seconds: 900,
+  - {id: bw_tech, source: businesswire, tier: 2, tickers: [], poll_seconds: 900,
      url: "https://feed.businesswire.com/rss/home/?rss=G1QFDERJXkJeGVtRWQ==", verified: true}
-  - {id: prn_all, source: prnewswire, tier: 1, tickers: [], poll_seconds: 900,
+  - {id: prn_all, source: prnewswire, tier: 2, tickers: [], poll_seconds: 900,
      url: "https://www.prnewswire.com/rss/news-releases-list.rss", verified: true}
-  - {id: prn_tech, source: prnewswire, tier: 1, tickers: [], poll_seconds: 900,
+  - {id: prn_tech, source: prnewswire, tier: 2, tickers: [], poll_seconds: 900,
      url: "https://www.prnewswire.com/rss/technology-latest-news/technology-latest-news-list.rss", verified: true}
-  - {id: prn_fin, source: prnewswire, tier: 1, tickers: [], poll_seconds: 900,
+  - {id: prn_fin, source: prnewswire, tier: 2, tickers: [], poll_seconds: 900,
      url: "https://www.prnewswire.com/rss/financial-services-latest-news/financial-services-latest-news-list.rss", verified: true}
 
   # GlobeNewswire: every RSS path connection-resets for non-browser clients
   # (root returns 200, feeds return nothing). Not usable.
-  - {id: gnw_public, source: globenewswire, tier: 1, tickers: [], poll_seconds: 900,
+  - {id: gnw_public, source: globenewswire, tier: 2, tickers: [], poll_seconds: 900,
      url: "https://www.globenewswire.com/RssFeed/orgclass/1/feedTitle/GlobeNewswire-News-about-Public-Companies",
      enabled: false, block: "connection reset for non-browser clients"}
 
@@ -147,10 +147,7 @@ publisher_tiers:
 
   finnhub-recommendation: 2
 
-  businesswire: 1
-  prnewswire: 1
-
-  # Tier 2 — wire services
+  # Tier 2 — wire services and press-release distributors
   reuters: 2
   "thomson reuters": 2
   ap: 2
@@ -159,6 +156,14 @@ publisher_tiers:
   "dow jones": 2
   "dow jones newswires": 2
   "business wire": 2
+  # Newswire distributors are Tier 2, NOT Tier 1, and the distinction matters.
+  # agent-plan.md 0.5 reserves Tier 1 for "company press releases" — the
+  # company's OWN disclosure. A PR Newswire item about NVIDIA is frequently
+  # issued by a PARTNER (ASUS, Acer, Equinix announcing RTX products), which is
+  # a third party mentioning the company, not the company disclosing. We cannot
+  # reliably tell issuer from mention, so we take the safer tier.
+  # This also gives the otherwise-empty Tier 2 layer (CODEBASE-PLAN 12) some
+  # legitimate content.
   businesswire: 2
   globenewswire: 2
   "pr newswire": 2

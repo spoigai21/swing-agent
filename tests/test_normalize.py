@@ -53,8 +53,70 @@ class TestTickerTagging:
         assert "MU" in resolve_tickers(_raw(headline="Micron guides higher"))
         assert "MU" in resolve_tickers(_raw(headline="MU rallies on memory pricing"))
 
-    def test_every_pattern_is_grouped(self):
-        # A bare '|' outside a group re-introduces the bug for that ticker.
-        for ticker, pat in _ticker_patterns().items():
-            assert pat.pattern.startswith("(?<![A-Za-z0-9])(?:"), ticker
-            assert pat.pattern.endswith(")(?![A-Za-z0-9])"), ticker
+    def test_every_alias_pattern_is_grouped(self):
+        # A bare '|' outside a group re-introduces the ungrouped-alternation bug
+        # (lookbehind binds to the first alternative, lookahead to the last).
+        for ticker, (sym, alias) in _ticker_patterns().items():
+            assert alias.pattern.startswith("(?<![A-Za-z0-9])(?:"), ticker
+            assert alias.pattern.endswith(")(?![A-Za-z0-9])"), ticker
+            assert sym.pattern.startswith("(?<![A-Za-z0-9])"), ticker
+            assert sym.pattern.endswith("(?![A-Za-z0-9])"), ticker
+
+
+class TestSymbolCaseSensitivity:
+    """A two-letter ticker matched case-insensitively is a magnet for ordinary
+    words in any language. 'MU' tagged the Czech word 'mu' in a PR Newswire
+    release before symbols were made case-sensitive."""
+
+    def test_lowercase_symbol_does_not_tag(self):
+        assert "MU" not in resolve_tickers(_raw(headline="the mu variant spread quickly"))
+
+    def test_foreign_language_word_does_not_tag(self):
+        assert "MU" not in resolve_tickers(
+            _raw(headline="dokoncily v Japonsku mu demonstraci"))
+
+    def test_uppercase_symbol_tags(self):
+        assert "MU" in resolve_tickers(_raw(headline="MU rallies on memory pricing"))
+
+    def test_company_name_tags_case_insensitively(self):
+        assert "MU" in resolve_tickers(_raw(headline="micron guides higher"))
+        assert "MU" in resolve_tickers(_raw(headline="Micron guides higher"))
+
+    def test_symbol_pattern_is_not_ignorecase(self):
+        import re
+
+        from swing.ingest.normalize import _ticker_patterns
+
+        for ticker, (sym, alias) in _ticker_patterns().items():
+            assert not (sym.flags & re.IGNORECASE), f"{ticker} symbol must be case-sensitive"
+            assert alias.flags & re.IGNORECASE, f"{ticker} alias should be case-insensitive"
+
+
+class TestTierConfigIntegrity:
+    def test_publisher_tiers_have_no_duplicate_keys(self):
+        """YAML silently keeps the LAST duplicate. prnewswire was listed at both
+        tier 1 and tier 2, so the tier-1 intent was overridden invisibly."""
+        import re
+
+        from swing.paths import SOURCES
+
+        block = SOURCES.read_text().split("publisher_tiers:")[1]
+        keys = []
+        for line in block.splitlines():
+            m = re.match(r'\s{2}"?([\w .\-/]+)"?\s*:\s*\d+\s*$', line)
+            if m:
+                keys.append(m.group(1).strip().strip('"').lower())
+        dupes = {k for k in keys if keys.count(k) > 1}
+        assert not dupes, f"duplicate publisher_tiers keys: {sorted(dupes)}"
+
+    def test_feed_tier_agrees_with_publisher_tier(self):
+        """resolve_tier falls back to the feed tier, so a disagreement makes the
+        resolved tier depend on which lookup happens to hit."""
+        from swing.ingest.config import feeds, sources
+
+        pub = {k.lower(): v for k, v in sources()["publisher_tiers"].items()}
+        for f in feeds(include_disabled=True):
+            if f.source.lower() in pub:
+                assert pub[f.source.lower()] == f.tier, (
+                    f"{f.id}: feed tier {f.tier} != publisher tier "
+                    f"{pub[f.source.lower()]} for {f.source}")
