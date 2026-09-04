@@ -45,8 +45,17 @@ def _candidates(blind: bool, ticker: str | None, limit: int) -> list[dict]:
     if ticker:
         sql += " AND s.ticker = %s"
         params.append(ticker.upper())
-    sql += " ORDER BY (SELECT count(*) FROM clusters c WHERE c.swing_id=s.id) DESC, "
-    sql += "abs(s.residual_z) DESC LIMIT %s"
+    # Blind cases are researched by hand, so offer the ones a human can actually
+    # verify: single names (a sector move needs the whole industry checked),
+    # with real coverage, biggest moves first.
+    if blind:
+        sql += " AND s.entity_type = 'stock' AND s.kind = 'daily'"
+    sql += """
+        ORDER BY (SELECT count(*) FROM clusters c
+                  WHERE c.swing_id=s.id AND c.timing='pre_move') DESC,
+                 abs(s.residual_z) DESC
+        LIMIT %s
+    """
     params.append(limit)
     with connect() as conn:
         return conn.execute(sql, tuple(params)).fetchall()
@@ -64,6 +73,65 @@ def _show_swing(s: dict) -> None:
     print(f"  residual_z={float(s['residual_z']):+.2f}  "
           f"volume_z={float(s['volume_z'] or 0):+.1f}  "
           f"earnings_mode={s['earnings_mode']}")
+
+
+def _research_pane(swing: dict) -> None:
+    """Independent evidence for the blind researcher.
+
+    ⚠️ This is NOT our retrieval. It lists EVERY filing we hold for the ticker
+    around the move, unranked and unfiltered, plus the price shape and search
+    strings. The circularity the plan warns about is constraining your answer to
+    our RANKED CLUSTER LIST; checking primary sources is exactly what agent-plan
+    4.1 tells you to do ("read that day's coverage, check the 8-K, search the
+    web"), and it is what makes a blind case take minutes instead of forever.
+    """
+    from datetime import timedelta
+
+    from swing.analysis.retrieval import retrieval_tickers
+
+    d, ticker = swing["d"], swing["ticker"]
+    # A sector ETF files nothing itself; its constituents do.
+    filing_tickers = retrieval_tickers(dict(swing))
+    with connect() as conn:
+        filings = conn.execute(
+            """
+            SELECT published_at, headline, url, raw->>'items' AS items,
+                   raw->>'form' AS form, raw->>'ticker' AS tkr
+            FROM articles_raw
+            WHERE source='sec-edgar' AND raw->>'ticker' = ANY(%s)
+              AND published_at::date BETWEEN %s AND %s
+            ORDER BY published_at
+            """,
+            (filing_tickers, d - timedelta(days=4), d + timedelta(days=1)),
+        ).fetchall()
+        bars = conn.execute(
+            """
+            SELECT ts::date d, open, close, volume FROM bars
+            WHERE ticker=%s AND ts::date BETWEEN %s AND %s ORDER BY ts
+            """,
+            (ticker, d - timedelta(days=2), d + timedelta(days=1)),
+        ).fetchall()
+
+    print("\n  --- INDEPENDENT RESEARCH (not our retrieval) ---")
+    if bars:
+        print("  price action:")
+        for b in bars:
+            mark = "  <-- swing day" if b["d"] == d else ""
+            chg = (float(b["close"]) / float(b["open"]) - 1) * 100
+            print(f"    {b['d']}  open {float(b['open']):>9.2f}  close {float(b['close']):>9.2f}"
+                  f"  ({chg:+.1f}%)  vol {b['volume']:>13,}{mark}")
+    print(f"\n  SEC filings, {d - timedelta(days=4)} .. {d + timedelta(days=1)} "
+          f"(ALL of them, unranked):")
+    if not filings:
+        print("    (none)")
+    for f in filings:
+        item = f" Item {f['items']}" if f["items"] else ""
+        print(f"    [{f['published_at']:%m-%d %H:%M}Z] {f['form']}{item}")
+        print(f"        {f['url']}")
+    print("\n  suggested searches:")
+    print(f"    \"{ticker}\" stock {d}")
+    print(f"    {ticker} news {d.strftime('%B %d, %Y')}")
+    print("  ---------------------------------------------")
 
 
 def _show_clusters(swing_id: int) -> list[dict]:
@@ -121,7 +189,9 @@ def annotate_one(s: dict, blind: bool) -> bool:
     if blind:
         print("\n  BLIND MODE — retrieval is hidden until you commit an answer.")
         print("  Research this independently: read that day's coverage, check the")
-        print("  8-K on EDGAR, search the web. Then answer.\n")
+        print("  8-K on EDGAR, search the web. Then answer.")
+        _research_pane(s)
+        print()
         catalyst = _prompt("  True catalyst (blank = none found): ")
         no_cat = not catalyst
         etype = ""

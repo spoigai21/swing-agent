@@ -55,6 +55,7 @@ src/swing/store/migrations/env.py
 src/swing/store/migrations/versions/0001_baseline.py
 src/swing/store/migrations/versions/0002_swing_unique.py
 src/swing/store/migrations/versions/0003_verdict_reason.py
+src/swing/store/migrations/versions/0004_allowed_clusters.py
 src/swing_agent.egg-info/PKG-INFO
 src/swing_agent.egg-info/SOURCES.txt
 src/swing_agent.egg-info/dependency_links.txt
@@ -65,6 +66,7 @@ tests/test_abstention.py
 tests/test_config.py
 tests/test_decompose.py
 tests/test_dedup.py
+tests/test_harness.py
 tests/test_normalize.py
 tests/test_onset.py
 tests/test_placebo.py
