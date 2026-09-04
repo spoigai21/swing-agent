@@ -67,6 +67,7 @@ tests/test_decompose.py
 tests/test_dedup.py
 tests/test_normalize.py
 tests/test_onset.py
+tests/test_placebo.py
 tests/test_schema.py
 tests/test_timeutil.py
 tests/test_versioning.py

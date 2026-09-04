@@ -56,7 +56,8 @@ def build_graph():
 
 def attribute_swing(swing_id: int, run_kind: str = "production",
                     persist: bool = True,
-                    cluster_override: dict[str, list] | None = None) -> dict[str, Any]:
+                    cluster_override: dict[str, list] | None = None,
+                    verdict_reason_tag: str | None = None) -> dict[str, Any]:
     """Run one swing through the graph. Returns the final state."""
     state: AttributionState = {
         "swing_id": swing_id,
@@ -64,6 +65,7 @@ def attribute_swing(swing_id: int, run_kind: str = "production",
         # Dry runs (Gate 3, weight tuning) must not pollute the metrics tables.
         "persist": persist,
         "cluster_override": cluster_override,
+        "verdict_reason_tag": verdict_reason_tag,
         "messages": [],
     }
     return build_graph().invoke(state)

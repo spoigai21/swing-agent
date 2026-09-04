@@ -20,6 +20,11 @@ from swing.paths import CONFIG
 # here changes every future config_hash, which is the intent.
 HASHED_CONFIGS = ("thresholds.yaml", "sources.yaml", "watchlist.yaml")
 
+# Code that changes what an EVAL MEASURES, not just how the system behaves.
+# config_hash only covers YAML, so a change to placebo donor selection would
+# otherwise let results from two different experimental designs be pooled.
+HASHED_EVAL_CODE = ("eval/placebo.py",)
+
 
 def _canonical(path: Path) -> str:
     """Hash semantic content, not formatting: reindenting a YAML file must not
@@ -37,6 +42,24 @@ def config_hash() -> str:
         h.update(name.encode())
         h.update(_canonical(CONFIG / name).encode())
     return h.hexdigest()[:16]
+
+
+@lru_cache(maxsize=1)
+def eval_hash() -> str:
+    """Fingerprint of the evaluation DESIGN, separate from system config.
+
+    Changing how placebo donors are chosen changes what the metric means. Two
+    runs under different designs must not be pooled, and config_hash cannot see
+    it because that only hashes YAML.
+    """
+    from swing.paths import ROOT
+
+    h = hashlib.sha256()
+    for rel in HASHED_EVAL_CODE:
+        path = ROOT / "src" / "swing" / rel
+        h.update(rel.encode())
+        h.update(path.read_bytes() if path.exists() else b"")
+    return h.hexdigest()[:12]
 
 
 @lru_cache(maxsize=1)

@@ -219,13 +219,22 @@ def placebo(n: int = 30, seed: int = 0) -> int:
     from swing.eval.placebo import run
 
     log.setup()
+    from swing.eval.placebo import cumulative
+
     r = run(n=n, seed=seed)
     if not r["n"]:
         print(r.get("note", "no cases"))
-        return 1
-    print(f"\n  {r['n']} placebo cases, {r['confabulated']} confabulated "
-          f"({r['rate']:.1%})  target < 10%  "
-          f"{'PASS' if r['rate'] < 0.10 else 'FAIL'}")
+    else:
+        print(f"\n  this run: {r['n']} cases, {r['confabulated']} confabulated "
+              f"({r['rate']:.1%})")
+    c = cumulative()
+    if c["n"]:
+        status = "PASS" if c["rate"] < 0.10 else "FAIL"
+        print(f"  CUMULATIVE on this version: {c['n']} cases, "
+              f"{c['confabulated']} confabulated ({c['rate']:.1%})  "
+              f"target < 10%  {status}")
+        print("  (Gate 4 wants 200; free tier is 20 requests/day per model, "
+              "so this accumulates across runs)")
     return 0
 
 

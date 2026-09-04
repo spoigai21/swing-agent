@@ -156,6 +156,15 @@ def apply_guards(state: AttributionState) -> dict[str, Any]:
     }
 
 
+def _reason(state: AttributionState) -> str | None:
+    """verdict_reason, prefixed with an eval-design tag when one is supplied."""
+    base = state.get("verdict_reason")
+    tag = state.get("verdict_reason_tag")
+    if not tag:
+        return base
+    return f"{tag}|{base}" if base else tag
+
+
 def persist(state: AttributionState) -> dict[str, Any]:
     """Store the attribution with its full version stamp."""
     from swing.common.versioning import config_hash, model_id, prompt_version
@@ -178,7 +187,7 @@ def persist(state: AttributionState) -> dict[str, Any]:
             VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)
             """,
             (state["swing_id"], attr.verdict, attr.model_dump_json(),
-             attr.unexplained_note, state.get("verdict_reason"), version,
+             attr.unexplained_note, _reason(state), version,
              model_id(), config_hash(), state.get("run_kind", "production")),
         )
     return {}

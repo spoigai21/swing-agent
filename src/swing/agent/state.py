@@ -29,6 +29,7 @@ class AttributionState(TypedDict, total=False):
 
     prompt_version: str
     verdict_reason: str | None
+    verdict_reason_tag: str | None
     validation: dict[str, Any] | None
     run_kind: str
     persist: bool
