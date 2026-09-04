@@ -19,7 +19,7 @@ from swing.analysis.rank import score_clusters
 from swing.analysis.windows import windows_for
 from swing.common import logging as log
 from swing.common.timeutil import UTC
-from swing.ingest.config import thresholds
+from swing.ingest.config import stocks, thresholds
 from swing.store.session import connect
 
 logger = log.get("analysis.retrieval")
@@ -51,9 +51,12 @@ def query_text(swing: dict) -> str:
     scores a flat 0.5, ranking degenerates to timing alone, and a product press
     release outranks the earnings 8-K purely for being closer to the open.
     """
-    from swing.ingest.config import stocks
+    from swing.ingest.config import sectors, stocks
 
-    name = (stocks().get(swing["ticker"], {}) or {}).get("name", swing["ticker"])
+    if swing.get("entity_type") == "sector":
+        name = (sectors().get(swing["ticker"], {}) or {}).get("name", swing["ticker"])
+    else:
+        name = (stocks().get(swing["ticker"], {}) or {}).get("name", swing["ticker"])
     direction = "rose" if float(swing["total_return"]) >= 0 else "fell"
     pct = abs(float(swing["total_return"])) * 100
     return (f"{swing['ticker']} {name} stock {direction} {pct:.1f}% — "
@@ -86,6 +89,24 @@ def _prev_close_ts(ticker: str, d) -> datetime:
     return datetime.combine(base, time(20, 0), tzinfo=UTC)
 
 
+def retrieval_tickers(swing: dict) -> list[str]:
+    """Which ticker tags to search for this entity.
+
+    A sector ETF is never itself tagged on an article — nobody writes "XLC" in a
+    headline — so searching for its own symbol returns nothing and every sector
+    swing abstains for lack of evidence. agent-plan.md 0.1b: retrieval for a
+    sector entity searches INDUSTRY-level news instead.
+
+    We approximate the industry by the constituents we already track, which is
+    exactly the set whose moves define the sector residual.
+    """
+    if swing.get("entity_type") != "sector":
+        return [swing["ticker"]]
+    etf = swing["ticker"]
+    members = [t for t, m in stocks().items() if m.get("sector_etf") == etf]
+    return members or [etf]
+
+
 def build_for_swing(swing_id: int, persist: bool = True) -> dict[str, list[ClusterView]]:
     swing = _swing_row(swing_id)
     if not swing:
@@ -94,7 +115,7 @@ def build_for_swing(swing_id: int, persist: bool = True) -> dict[str, list[Clust
         logger.warning("swing %s has no onset_ts; skipping", swing_id)
         return {"pre_move": [], "post_move": []}
 
-    tickers = [swing["ticker"]]
+    tickers = retrieval_tickers(dict(swing))
     onset = swing["onset_ts"]
     prev_close = _prev_close_ts(swing["ticker"], swing["d"])
     session_open = datetime.combine(swing["d"], time(13, 30), tzinfo=UTC)

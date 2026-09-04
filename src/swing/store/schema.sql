@@ -194,6 +194,9 @@ CREATE TABLE IF NOT EXISTS attributions (
   verdict          text NOT NULL CHECK (verdict IN ('explained','partially_explained','unexplained')),
   payload          jsonb NOT NULL,
   unexplained_note text,
+  -- Which path produced the verdict: residual_below_threshold,
+  -- no_pre_move_clusters, llm_error, or NULL for a model judgement.
+  verdict_reason   text,
   -- Populated by us, never by the model. Without these the system is
   -- unfalsifiable: you cannot tell whether a metric moved because of your
   -- prompt edit or because Google rotated the model. agent-plan.md 3.1b.

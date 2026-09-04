@@ -53,6 +53,8 @@ src/swing/store/raw.py
 src/swing/store/session.py
 src/swing/store/migrations/env.py
 src/swing/store/migrations/versions/0001_baseline.py
+src/swing/store/migrations/versions/0002_swing_unique.py
+src/swing/store/migrations/versions/0003_verdict_reason.py
 src/swing_agent.egg-info/PKG-INFO
 src/swing_agent.egg-info/SOURCES.txt
 src/swing_agent.egg-info/dependency_links.txt

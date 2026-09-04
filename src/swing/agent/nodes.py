@@ -158,21 +158,27 @@ def apply_guards(state: AttributionState) -> dict[str, Any]:
 
 def persist(state: AttributionState) -> dict[str, Any]:
     """Store the attribution with its full version stamp."""
-    from swing.common.versioning import config_hash, model_id
+    from swing.common.versioning import config_hash, model_id, prompt_version
     from swing.store.session import connect
 
     attr = state["attribution"]
     if attr is None or not state.get("persist", True):
         return {}
+    # Record the ACTIVE prompt version even on the non-LLM paths. Those verdicts
+    # are prompt-independent, but the stamp documents what configuration was
+    # live, which is the point of 3.1b; verdict_reason says whether a prompt was
+    # actually used.
+    version = state.get("prompt_version") or prompt_version()
     with connect() as conn:
         conn.execute(
             """
             INSERT INTO attributions (swing_id, verdict, payload, unexplained_note,
-                                      prompt_version, model_id, config_hash, run_kind)
-            VALUES (%s,%s,%s,%s,%s,%s,%s,%s)
+                                      verdict_reason, prompt_version, model_id,
+                                      config_hash, run_kind)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)
             """,
             (state["swing_id"], attr.verdict, attr.model_dump_json(),
-             attr.unexplained_note, state.get("prompt_version", "none"),
+             attr.unexplained_note, state.get("verdict_reason"), version,
              model_id(), config_hash(), state.get("run_kind", "production")),
         )
     return {}
