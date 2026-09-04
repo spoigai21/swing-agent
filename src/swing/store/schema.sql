@@ -197,6 +197,10 @@ CREATE TABLE IF NOT EXISTS attributions (
   -- Which path produced the verdict: residual_below_threshold,
   -- no_pre_move_clusters, llm_error, or NULL for a model judgement.
   verdict_reason   text,
+  -- The cluster ids actually shown to the model. Required to check
+  -- citations for runs with an injected cluster set (placebo), where
+  -- the swing's own clusters are NOT what was passed.
+  shown_cluster_ids bigint[],
   -- Populated by us, never by the model. Without these the system is
   -- unfalsifiable: you cannot tell whether a metric moved because of your
   -- prompt edit or because Google rotated the model. agent-plan.md 3.1b.

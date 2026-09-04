@@ -182,12 +182,13 @@ def persist(state: AttributionState) -> dict[str, Any]:
         conn.execute(
             """
             INSERT INTO attributions (swing_id, verdict, payload, unexplained_note,
-                                      verdict_reason, prompt_version, model_id,
-                                      config_hash, run_kind)
-            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                                      verdict_reason, shown_cluster_ids,
+                                      prompt_version, model_id, config_hash, run_kind)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
             """,
             (state["swing_id"], attr.verdict, attr.model_dump_json(),
-             attr.unexplained_note, _reason(state), version,
+             attr.unexplained_note, _reason(state),
+             list(state.get("allowed_cluster_ids") or []), version,
              model_id(), config_hash(), state.get("run_kind", "production")),
         )
     return {}

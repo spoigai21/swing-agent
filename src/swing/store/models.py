@@ -200,6 +200,7 @@ class Attribution(Base):
     payload: Mapped[dict] = mapped_column(JSONB)
     unexplained_note: Mapped[str | None] = mapped_column(Text)
     verdict_reason: Mapped[str | None] = mapped_column(Text)
+    shown_cluster_ids: Mapped[list[int] | None] = mapped_column(ARRAY(BigInteger))
     prompt_version: Mapped[str] = mapped_column(Text)
     model_id: Mapped[str] = mapped_column(Text)
     config_hash: Mapped[str] = mapped_column(Text)

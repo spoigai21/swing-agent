@@ -95,10 +95,22 @@ def confabulation_rate(run_kind: str = "placebo") -> Metric:
     The metric that matters most: a system that explains 90% correctly and
     invents the other 10% is worse than one explaining 70% and abstaining,
     because you cannot tell which bucket an answer is in.
+
+    ⚠️ Filtered to the current (model, prompt, config, eval-design) tuple.
+    Pooling across versions is exactly what agent-plan.md 3.1b exists to
+    prevent, and an eval-design change alters what the number MEANS.
     """
+    from swing.common.versioning import config_hash, eval_hash, model_id, prompt_version
+
     with connect() as conn:
         rows = conn.execute(
-            "SELECT verdict FROM attributions WHERE run_kind=%s", (run_kind,)
+            """
+            SELECT verdict FROM attributions
+            WHERE run_kind=%s AND model_id=%s AND prompt_version=%s
+              AND config_hash=%s AND coalesce(verdict_reason,'') LIKE %s
+            """,
+            (run_kind, model_id(), prompt_version(), config_hash(),
+             f"placebo:{eval_hash()}%"),
         ).fetchall()
     if not rows:
         return Metric(f"confabulation ({run_kind})", None, 0, "< 0.10", None)
@@ -108,21 +120,21 @@ def confabulation_rate(run_kind: str = "placebo") -> Metric:
 
 
 def citation_validity() -> Metric:
-    """Every cited cluster_id must exist in what we actually passed the model."""
+    """Every cited cluster_id must exist in what we actually PASSED the model.
+
+    Validated against `shown_cluster_ids`, not the swing's own clusters: a
+    placebo run is shown the DONOR's clusters, and checking against the swing's
+    own set scored every valid citation invalid (the metric read 0.000).
+    """
     with connect() as conn:
         rows = conn.execute(
-            "SELECT id, swing_id, payload FROM attributions").fetchall()
-        valid_by_swing: dict[int, set[int]] = {}
-        for r in rows:
-            if r["swing_id"] not in valid_by_swing:
-                ids = conn.execute(
-                    "SELECT id FROM clusters WHERE swing_id=%s", (r["swing_id"],)).fetchall()
-                valid_by_swing[r["swing_id"]] = {x["id"] for x in ids}
-    if not rows:
-        return Metric("citation validity", None, 0, "= 1.00", None)
+            "SELECT id, swing_id, payload, shown_cluster_ids FROM attributions"
+        ).fetchall()
     total = ok = 0
     for r in rows:
-        allowed = valid_by_swing[r["swing_id"]]
+        allowed = set(r["shown_cluster_ids"] or [])
+        if not allowed:
+            continue          # pre-dates the column; cannot be judged
         for c in (r["payload"] or {}).get("candidates") or []:
             for e in c.get("evidence") or []:
                 total += 1
