@@ -98,6 +98,21 @@ def build_parser() -> argparse.ArgumentParser:
 
     sub.add_parser("metrics", help="the five evaluation metrics")
 
+    al = sub.add_parser("alert", help="notify on large moves (|z| >= 3)")
+    al.add_argument("--days", type=int, default=3)
+    al.add_argument("--min-z", type=float)
+    al.add_argument("--dry-run", action="store_true")
+
+    mo = sub.add_parser("monitor", help="operational dashboard")
+    mo.add_argument("--days", type=int, default=90)
+
+    dr = sub.add_parser("daily", help="the full post-close batch")
+    dr.add_argument("--date")
+    dr.add_argument("--limit", type=int, default=15,
+                    help="max attributions (free-tier quota is 20/day)")
+    dr.add_argument("--skip-prices", action="store_true")
+    dr.add_argument("--skip-attribution", action="store_true")
+
     pl = sub.add_parser("placebo", help="confabulation test (uses Gemini quota)")
     pl.add_argument("--n", type=int, default=30)
     pl.add_argument("--seed", type=int, default=0)
@@ -137,6 +152,13 @@ def dispatch(args: argparse.Namespace) -> int:
             return commands.annotate(args.blind, args.ticker, args.limit, args.progress)
         case "metrics":
             return commands.metrics()
+        case "alert":
+            return commands.alert(args.days, args.min_z, args.dry_run)
+        case "monitor":
+            return commands.monitor(args.days)
+        case "daily":
+            return commands.daily(args.date, args.limit, args.skip_prices,
+                                  args.skip_attribution)
         case "placebo":
             return commands.placebo(args.n, args.seed)
         case "why":

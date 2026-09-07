@@ -238,6 +238,40 @@ def placebo(n: int = 30, seed: int = 0) -> int:
     return 0
 
 
+def alert(days: int = 3, min_z: float | None = None, dry_run: bool = False) -> int:
+    from swing.common import logging as log
+    from swing.interface.alert import send
+
+    log.setup()
+    n = send(days, min_z, dry_run)
+    print(f"{n} alert(s)" + (" (dry run)" if dry_run else " sent"))
+    return 0
+
+
+def monitor(days: int = 90) -> int:
+    from swing.interface.monitor import dashboard
+
+    dashboard(days)
+    return 0
+
+
+def daily(date: str | None = None, limit: int = 15, skip_prices: bool = False,
+          skip_attribution: bool = False) -> int:
+    from datetime import date as _date
+
+    from swing.common import logging as log
+    from swing.interface.batch import run
+
+    log.setup()
+    res = run(_date.fromisoformat(date) if date else None,
+              attribution_limit=limit, skip_prices=skip_prices,
+              skip_attribution=skip_attribution)
+    print(f"\n  {res.summary()}")
+    for e in res.errors:
+        print(f"  ERROR {e}")
+    return 1 if res.errors else 0
+
+
 def metrics() -> int:
     from swing.eval.harness import print_report
 
@@ -349,10 +383,16 @@ def compare(tickers: list[str], days: int = 90) -> int:
         print("no factor rows for those tickers")
         return 1
     print(f"{'ticker':<8}{'n':>5}{'idio_share':>12}{'R^2':>8}{'resid_vol':>11}{'swings':>8}")
+    flagged = False
     for r in rows:
-        print(f"{r['ticker']:<8}{r['n']:>5}{float(r['avg_idio_share'] or 0):>12.2f}"
+        share = float(r["avg_idio_share"] or 0)
+        flagged |= share > 1.0
+        print(f"{r['ticker']:<8}{r['n']:>5}{share:>12.2f}"
               f"{float(r['avg_r2'] or 0):>8.3f}{float(r['residual_vol'] or 0) * 100:>10.2f}%"
-              f"{r['swing_days']:>8}")
+              f"{r['swing_days']:>8}{'  <- factor adds variance' if share > 1 else ''}")
+    if flagged:
+        print("\n  idio_share > 1.0 is possible: betas are fitted out-of-sample, so a")
+        print("  poorly-matched sector factor can add variance instead of removing it.")
     return 0
 
 
@@ -391,7 +431,16 @@ def unexplained(ticker: str | None = None, days: int = 30) -> int:
 
 
 def ask(question: str) -> int:
-    _needs("Step 5+ (insight agent)", "`swing ask` needs the insight agent and its guardrails")
+    """Natural language over stored attributions.
+
+    The forecast guardrail runs FIRST, before any model call, and most queries
+    are answered by SQL and never reach the model at all.
+    """
+    from swing.interface.query import answer
+
+    a = answer(question)
+    print(a.text)
+    return 0
 
 
 def batch(date: str | None = None, limit: int | None = None) -> int:

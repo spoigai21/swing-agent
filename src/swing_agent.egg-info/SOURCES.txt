@@ -45,6 +45,12 @@ src/swing/ingest/news_marketaux.py
 src/swing/ingest/news_rss.py
 src/swing/ingest/normalize.py
 src/swing/ingest/prices.py
+src/swing/interface/__init__.py
+src/swing/interface/alert.py
+src/swing/interface/batch.py
+src/swing/interface/guardrail.py
+src/swing/interface/monitor.py
+src/swing/interface/query.py
 src/swing/models/__init__.py
 src/swing/store/__init__.py
 src/swing/store/models.py

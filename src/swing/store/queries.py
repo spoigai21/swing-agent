@@ -90,11 +90,19 @@ def idio_share_summary(tickers: list[str], days: int = 90) -> list[dict[str, Any
     """Backs `swing compare`.
 
     idio_share here is VARIANCE-based: var(residual) / var(ret) over the window.
-    The per-day ratio |residual|/|ret| stored on daily_factors is unbounded — it
-    exceeds 1 whenever the factor components offset, and averaging it produces
-    values like 3.29 that are dominated by days where ret is near zero. The
-    variance form is bounded [0, 1] and is the standard "idiosyncratic share":
-    the fraction of this name's return variance that the factors do not explain.
+    The per-day ratio |residual|/|ret| stored on daily_factors is far worse —
+    averaging it gives values like 3.29 because days with near-zero `ret`
+    dominate.
+
+    ⚠️ This is NOT bounded by 1. Betas are fitted on a trailing 120-day window
+    and applied to the following day, so the residual is OUT-OF-SAMPLE; only
+    in-sample OLS guarantees var(residual) <= var(y). SBUX comes in at 1.11 with
+    R² = 0.14, meaning the factor adjustment ADDS variance for that name rather
+    than removing it.
+
+    That is a diagnostic, not a defect: a ratio above 1 says the assigned factor
+    is a poor fit and the "residual" is mostly noise the model introduced. It is
+    the same check data-sources.md A.2 asks for on MU/SMH, generalised.
     """
     with connect() as conn:
         return conn.execute(
