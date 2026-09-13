@@ -99,3 +99,44 @@ class TestRecallIsBlindOnly:
         import inspect
 
         assert "a.blind" in inspect.getsource(harness.recall_at_k)
+
+
+def _payload(*candidates):
+    return {"candidates": [{"evidence": [{"cluster_id": c} for c in cited]}
+                           for cited in candidates]}
+
+
+class TestLabelsSurviveRebuild:
+    """Clusters are rebuilt whenever ranking is retuned. A label pinned to a
+    cluster id blocked the rebuild (foreign key) and froze recall at the ranking
+    that existed when the swing was annotated."""
+
+    def test_recall_resolves_labels_through_articles(self):
+        import inspect
+
+        src = inspect.getsource(harness.recall_at_k)
+        assert "true_article_ids" in src and "pre_move" in src
+
+    def test_rebuild_upserts_instead_of_delete_and_reinsert(self):
+        import inspect
+
+        from swing.analysis import retrieval
+
+        src = inspect.getsource(retrieval._persist) + retrieval.UPSERT_CLUSTER
+        assert "ON CONFLICT (swing_id, timing, canonical_article)" in src
+        assert 'DELETE FROM clusters WHERE swing_id=%s"' not in src
+
+    def test_accuracy_hit_on_cluster_id(self):
+        assert harness.top_candidate_hit(_payload([7]), 7, None, {})
+
+    def test_accuracy_hit_after_cluster_was_re_ided(self):
+        # The labelled cluster was replaced (true_cluster_id SET NULL); the
+        # attribution cites the new cluster, which holds the same article.
+        assert harness.top_candidate_hit(_payload([42]), None, [1001, 1002],
+                                         {42: {1002, 1003}})
+
+    def test_accuracy_miss_on_unrelated_story(self):
+        assert not harness.top_candidate_hit(_payload([42]), None, [1001], {42: {9}})
+
+    def test_only_the_top_candidate_counts(self):
+        assert not harness.top_candidate_hit(_payload([1], [2]), 2, None, {})

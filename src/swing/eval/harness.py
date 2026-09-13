@@ -34,12 +34,23 @@ class Metric:
 
 
 def recall_at_k(k: int = 10) -> Metric:
+    """⚠️ The label is resolved through its ARTICLES, not a stored cluster id.
+
+    Clusters are rebuilt every time ranking is retuned, so a stored cluster id
+    pins the label to the ranking that existed when you annotated. Matching the
+    labelled articles against the clusters that exist NOW makes recall move when
+    the ranking does, and a re-cluster that merges or splits the story still
+    scores (best rank wins).
+    """
     with connect() as conn:
         rows = conn.execute(
             """
-            SELECT a.swing_id, a.true_cluster_id, c.rank
+            SELECT a.swing_id,
+                   (SELECT min(c.rank) FROM clusters c
+                    JOIN cluster_members m ON m.cluster_id = c.id
+                    WHERE c.swing_id = a.swing_id AND c.timing = 'pre_move'
+                      AND m.article_id = ANY(a.true_article_ids)) AS rank
             FROM annotations a
-            LEFT JOIN clusters c ON c.id = a.true_cluster_id
             WHERE a.blind AND NOT a.no_catalyst
             """).fetchall()
     if not rows:
@@ -49,25 +60,50 @@ def recall_at_k(k: int = 10) -> Metric:
     return Metric(f"recall@{k} (blind)", v, len(rows), "> 0.85", v > 0.85)
 
 
+def _top_cited(payload: dict | None) -> set[int]:
+    cands = (payload or {}).get("candidates") or []
+    return {e["cluster_id"] for c in cands[:1] for e in (c.get("evidence") or [])
+            if e.get("cluster_id") is not None}
+
+
+def top_candidate_hit(payload: dict | None, true_cluster_id: int | None,
+                      true_article_ids: list[int] | None,
+                      members: dict[int, set[int]]) -> bool:
+    """Does the top candidate cite the annotated story?
+
+    Matched by cluster id OR by a shared article, so a labelled cluster that was
+    replaced by a rebuild still matches an attribution citing its successor.
+    """
+    cited = _top_cited(payload)
+    if true_cluster_id is not None and true_cluster_id in cited:
+        return True
+    truth = set(true_article_ids or [])
+    return any(members.get(cid, set()) & truth for cid in cited)
+
+
 def attribution_accuracy() -> Metric:
     with connect() as conn:
         rows = conn.execute(
             """
-            SELECT a.swing_id, a.true_cluster_id, at.payload
+            SELECT a.swing_id, a.true_cluster_id, a.true_article_ids, at.payload
             FROM annotations a
             JOIN LATERAL (SELECT payload FROM attributions
                           WHERE swing_id=a.swing_id AND run_kind='production'
                           ORDER BY created_at DESC LIMIT 1) at ON true
-            WHERE NOT a.no_catalyst AND a.true_cluster_id IS NOT NULL
+            WHERE NOT a.no_catalyst
+              AND (a.true_article_ids IS NOT NULL OR a.true_cluster_id IS NOT NULL)
             """).fetchall()
+        cited = sorted(set().union(*(_top_cited(r["payload"]) for r in rows)))
+        members: dict[int, set[int]] = {}
+        if cited:
+            for m in conn.execute(
+                    "SELECT cluster_id, article_id FROM cluster_members "
+                    "WHERE cluster_id = ANY(%s)", (cited,)).fetchall():
+                members.setdefault(m["cluster_id"], set()).add(m["article_id"])
     if not rows:
         return Metric("attribution accuracy", None, 0, "> 0.70", None)
-    hit = 0
-    for r in rows:
-        cands = (r["payload"] or {}).get("candidates") or []
-        cited = {e.get("cluster_id") for c in cands[:1] for e in (c.get("evidence") or [])}
-        if r["true_cluster_id"] in cited:
-            hit += 1
+    hit = sum(1 for r in rows if top_candidate_hit(
+        r["payload"], r["true_cluster_id"], r["true_article_ids"], members))
     v = hit / len(rows)
     return Metric("attribution accuracy", v, len(rows), "> 0.70", v > 0.70)
 

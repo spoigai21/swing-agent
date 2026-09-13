@@ -177,6 +177,9 @@ CREATE TABLE IF NOT EXISTS clusters (
   rank_score     numeric, rank int
 );
 CREATE INDEX IF NOT EXISTS clusters_swing_rank_idx ON clusters (swing_id, rank);
+-- A cluster's identity, so a rebuild upserts and ids survive a weight retune.
+CREATE UNIQUE INDEX IF NOT EXISTS clusters_identity_idx
+  ON clusters (swing_id, timing, canonical_article);
 
 CREATE TABLE IF NOT EXISTS cluster_members (
   cluster_id bigint NOT NULL REFERENCES clusters(id) ON DELETE CASCADE,
@@ -218,7 +221,11 @@ CREATE TABLE IF NOT EXISTS annotations (
   swing_id        bigint PRIMARY KEY REFERENCES swings(id),
   blind           boolean NOT NULL,   -- recall@10 is computed ONLY over blind=true
   true_catalyst   text,
-  true_cluster_id bigint REFERENCES clusters(id),
+  true_cluster_id bigint REFERENCES clusters(id) ON DELETE SET NULL,
+  -- The label itself: the chosen cluster's ARTICLES. Cluster ids change when
+  -- retrieval is rebuilt; article ids never do. recall@10 resolves these
+  -- against the clusters that exist now (migration 0005).
+  true_article_ids bigint[],
   true_event_type text,
   no_catalyst     boolean NOT NULL DEFAULT false,
   annotator_note  text,

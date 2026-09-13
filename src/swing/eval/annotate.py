@@ -167,20 +167,31 @@ def _prompt(msg: str, default: str = "") -> str:
 
 def _save(swing_id: int, blind: bool, catalyst: str, cluster_id: int | None,
           event_type: str | None, no_catalyst: bool, note: str) -> None:
+    """Store the chosen cluster's ARTICLES as the label, not just its id.
+
+    Cluster ids change when retrieval is rebuilt; article ids never do. Without
+    this, retuning ranking after annotating could not move recall@10.
+    """
     with connect() as conn:
         conn.execute(
             """
             INSERT INTO annotations (swing_id, blind, true_catalyst, true_cluster_id,
-                                     true_event_type, no_catalyst, annotator_note)
-            VALUES (%s,%s,%s,%s,%s,%s,%s)
+                                     true_article_ids, true_event_type, no_catalyst,
+                                     annotator_note)
+            VALUES (%(swing_id)s, %(blind)s, %(catalyst)s, %(cluster_id)s,
+                    (SELECT array_agg(article_id ORDER BY article_id)
+                     FROM cluster_members WHERE cluster_id = %(cluster_id)s),
+                    %(event_type)s, %(no_catalyst)s, %(note)s)
             ON CONFLICT (swing_id) DO UPDATE SET
               blind=EXCLUDED.blind, true_catalyst=EXCLUDED.true_catalyst,
               true_cluster_id=EXCLUDED.true_cluster_id,
+              true_article_ids=EXCLUDED.true_article_ids,
               true_event_type=EXCLUDED.true_event_type,
               no_catalyst=EXCLUDED.no_catalyst, annotator_note=EXCLUDED.annotator_note
             """,
-            (swing_id, blind, catalyst or None, cluster_id, event_type, no_catalyst,
-             note or None),
+            {"swing_id": swing_id, "blind": blind, "catalyst": catalyst or None,
+             "cluster_id": cluster_id, "event_type": event_type,
+             "no_catalyst": no_catalyst, "note": note or None},
         )
 
 

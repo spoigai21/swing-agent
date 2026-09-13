@@ -151,23 +151,41 @@ def build_for_swing(swing_id: int, persist: bool = True) -> dict[str, list[Clust
     return out
 
 
-INSERT_CLUSTER = """
+UPSERT_CLUSTER = """
 INSERT INTO clusters (swing_id, timing, canonical_article, member_count,
                       distinct_sources, earliest_published, best_tier,
                       semantic_score, timing_score, novelty_score, rank_score, rank)
 VALUES (%(swing_id)s, %(timing)s, %(canonical_article)s, %(member_count)s,
         %(distinct_sources)s, %(earliest_published)s, %(best_tier)s,
         %(semantic_score)s, %(timing_score)s, %(novelty_score)s, %(rank_score)s, %(rank)s)
+ON CONFLICT (swing_id, timing, canonical_article) DO UPDATE SET
+  member_count=EXCLUDED.member_count, distinct_sources=EXCLUDED.distinct_sources,
+  earliest_published=EXCLUDED.earliest_published, best_tier=EXCLUDED.best_tier,
+  semantic_score=EXCLUDED.semantic_score, timing_score=EXCLUDED.timing_score,
+  novelty_score=EXCLUDED.novelty_score, rank_score=EXCLUDED.rank_score,
+  rank=EXCLUDED.rank
 RETURNING id
 """
 
 
 def _persist(swing_id: int, groups: dict[str, list[ClusterView]]) -> None:
-    with connect() as conn, conn.cursor() as cur:
-        cur.execute("DELETE FROM clusters WHERE swing_id=%s", (swing_id,))
+    """Upsert keyed on (swing_id, timing, canonical_article), in one transaction.
+
+    ⚠️ Not delete-and-reinsert. That gave every cluster a new id on each rebuild,
+    and annotations.true_cluster_id references clusters(id), so the DELETE failed
+    for any labelled swing: build_all() logged it and moved on, and the labelled
+    swing kept its old ranking forever. Retuning weights after Gate 2 would then
+    leave recall@10 frozen whatever the weights were.
+
+    A weight retune changes only rank, so ids now survive it. A dedup-threshold
+    retune can change a cluster's canonical article; that cluster is replaced,
+    and the label survives through annotations.true_article_ids.
+    """
+    kept: list[int] = []
+    with connect() as conn, conn.transaction(), conn.cursor() as cur:
         for timing, clusters in groups.items():
             for c in clusters:
-                cur.execute(INSERT_CLUSTER, {
+                cur.execute(UPSERT_CLUSTER, {
                     "swing_id": swing_id, "timing": timing,
                     "canonical_article": c.canonical_article,
                     "member_count": c.member_count,
@@ -179,10 +197,16 @@ def _persist(swing_id: int, groups: dict[str, list[ClusterView]]) -> None:
                     "rank": c.rank,
                 })
                 cid = cur.fetchone()["id"]
+                kept.append(cid)
+                cur.execute("DELETE FROM cluster_members WHERE cluster_id=%s", (cid,))
                 cur.executemany(
                     "INSERT INTO cluster_members (cluster_id, article_id) VALUES (%s, %s) "
                     "ON CONFLICT DO NOTHING",
                     [(cid, aid) for aid in c.article_ids])
+        # Clusters that no longer exist. A label pointing at one is SET NULL and
+        # still resolves through annotations.true_article_ids.
+        cur.execute("DELETE FROM clusters WHERE swing_id=%s AND NOT (id = ANY(%s::bigint[]))",
+                    (swing_id, kept))
 
 
 def build_all(limit: int | None = None, only_with_articles: bool = True) -> dict[str, int]:

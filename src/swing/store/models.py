@@ -213,7 +213,9 @@ class Annotation(Base):
     swing_id: Mapped[int] = mapped_column(ForeignKey("swings.id"), primary_key=True)
     blind: Mapped[bool] = mapped_column(Boolean)
     true_catalyst: Mapped[str | None] = mapped_column(Text)
-    true_cluster_id: Mapped[int | None] = mapped_column(ForeignKey("clusters.id"))
+    true_cluster_id: Mapped[int | None] = mapped_column(
+        ForeignKey("clusters.id", ondelete="SET NULL"))
+    true_article_ids: Mapped[list[int] | None] = mapped_column(ARRAY(BigInteger))
     true_event_type: Mapped[str | None] = mapped_column(Text)
     no_catalyst: Mapped[bool] = mapped_column(Boolean, default=False)
     annotator_note: Mapped[str | None] = mapped_column(Text)
