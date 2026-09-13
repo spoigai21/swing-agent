@@ -10,7 +10,14 @@ from datetime import UTC, datetime, timedelta, timezone
 
 import pytest
 
-from swing.common.timeutil import assert_utc, days_ago, now_utc, parse_iso, parse_rss_datetime
+from swing.common.timeutil import (
+    assert_utc,
+    days_ago,
+    from_wallclock_epoch,
+    now_utc,
+    parse_iso,
+    parse_rss_datetime,
+)
 
 ET = timezone(timedelta(hours=-4))
 
@@ -78,3 +85,28 @@ class TestParseRss:
         for raw in ["Fri, 29 Aug 2026 12:31:05 GMT", "Fri, 29 Aug 2026 12:31:05 -0400"]:
             got = parse_rss_datetime(raw, None)
             assert got is not None and got.tzinfo is not None
+
+
+def _epoch(*wall) -> int:
+    """The epoch Finnhub sends: Eastern wall-clock digits labelled as UTC."""
+    return int(datetime(*wall, tzinfo=UTC).timestamp())
+
+
+class TestWallclockEpoch:
+    """Finnhub company-news stamps Eastern wall-clock time as if it were UTC.
+    Read naively, every article lands 4-5h early and post-move commentary is
+    filed as pre-move evidence."""
+
+    def test_summer_is_four_hours_later(self):
+        # CNBC 'Morning Squawk': CNBC's RSS says 13:06:11 GMT; Finnhub sent 09:06:11.
+        got = from_wallclock_epoch(_epoch(2026, 9, 11, 9, 6, 11), "America/New_York")
+        assert got == datetime(2026, 9, 11, 13, 6, 11, tzinfo=UTC)
+
+    def test_winter_is_five_hours_not_a_flat_offset(self):
+        # A flat +4h left SBUX/QCOM winter reaction stories BEFORE their 8-K.
+        got = from_wallclock_epoch(_epoch(2026, 1, 28, 7, 59), "America/New_York")
+        assert got == datetime(2026, 1, 28, 12, 59, tzinfo=UTC)
+
+    def test_result_is_aware_utc(self):
+        got = from_wallclock_epoch(_epoch(2025, 10, 21, 16, 27), "America/New_York")
+        assert got.tzinfo == UTC and assert_utc(got) == got

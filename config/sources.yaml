@@ -34,6 +34,16 @@
 # evidence pool.
 # ---------------------------------------------------------------------------
 
+# Finnhub company-news `datetime` is Eastern WALL-CLOCK time encoded as if it
+# were a UTC epoch. Verified 2026-09-13 against CNBC's own RSS and EDGAR 8-K
+# acceptance times: read naively it is 4h early in summer and 5h in winter,
+# which files post-move commentary as pre-move evidence. Ingest re-reads it in
+# this zone (migration 0006 corrected the archive). Changing this value changes
+# config_hash, so attributions built on misread timestamps never pool with
+# corrected ones.
+finnhub:
+  timestamp_tz: America/New_York
+
 edgar:
   tier: 1
   poll_seconds: 600            # every 10 min, 12 CIKs

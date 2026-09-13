@@ -10,6 +10,25 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 from email.utils import parsedate_to_datetime
+from zoneinfo import ZoneInfo
+
+
+def from_wallclock_epoch(ts: float, tz: str) -> datetime:
+    """Decode a 'Unix timestamp' that actually encodes LOCAL wall-clock time.
+
+    ⚠️ Finnhub company-news `datetime` is Eastern wall-clock time encoded as if
+    it were UTC. Verified 2026-09-13: the same CNBC stories via CNBC's own RSS
+    ('... GMT', fetched seconds after publication) sit exactly 4h after
+    Finnhub's stamp in summer, and winter earnings releases need 5h -- a flat
+    +4h still puts SBUX and QCOM reaction stories 45 minutes BEFORE the 8-K.
+    Read naively, every Finnhub article lands 4-5h early, which files post-move
+    commentary as pre-move evidence.
+
+    fold=1 resolves the repeated fall-back hour to standard time, as Postgres
+    AT TIME ZONE does, so the correcting migration and live ingest agree.
+    """
+    wall = datetime.fromtimestamp(ts, UTC).replace(tzinfo=None)
+    return wall.replace(tzinfo=ZoneInfo(tz), fold=1).astimezone(UTC)
 
 
 def assert_utc(ts: datetime) -> datetime:

@@ -16,7 +16,8 @@ from datetime import UTC, date, datetime, timedelta
 import httpx
 
 from swing.common import logging as log
-from swing.ingest.config import stocks
+from swing.common.timeutil import from_wallclock_epoch
+from swing.ingest.config import sources, stocks
 from swing.store.raw import RawArticle, bump_health, insert_many
 
 logger = log.get("ingest.finnhub")
@@ -36,6 +37,33 @@ def _get(path: str, params: dict) -> httpx.Response:
     return finnhub_get(path, params)
 
 
+def _to_raw(item: dict, ticker: str, **extra) -> RawArticle | None:
+    """One company-news item -> RawArticle. Shared by poll() and backfill().
+
+    ⚠️ `datetime` is NOT a true Unix timestamp: it encodes Eastern wall-clock
+    time as if it were UTC (see timeutil.from_wallclock_epoch). Reading it
+    naively put every Finnhub article 4-5h early. The value as received is
+    kept in `raw` so the correction can be audited or reversed.
+    """
+    url, headline, ts = item.get("url"), item.get("headline"), item.get("datetime")
+    if not (url and headline and ts):
+        return None
+    tz = sources()["finnhub"]["timestamp_tz"]
+    return RawArticle(
+        url=url,
+        # The PUBLISHER, not 'finnhub'. normalize.py tiers on this.
+        source=(item.get("source") or SOURCE).strip().lower(),
+        headline=headline,
+        summary=item.get("summary") or None,
+        published_at=from_wallclock_epoch(int(ts), tz),
+        raw={"publisher": item.get("source"), "finnhub_id": item.get("id"),
+             "category": item.get("category"), "related": item.get("related"),
+             "ticker": ticker, "via": SOURCE,
+             "finnhub_ts_as_received": datetime.fromtimestamp(int(ts), UTC).isoformat(),
+             "finnhub_ts_basis": tz, **extra},
+    )
+
+
 def poll(days: int = 7) -> int:
     """Company news for every watchlist ticker over the last `days`."""
     end = datetime.now(UTC).date()
@@ -53,24 +81,7 @@ def poll(days: int = 7) -> int:
             logger.warning("finnhub news %s -> HTTP %s", ticker, r.status_code)
             continue
 
-        batch = []
-        for item in r.json():
-            url = item.get("url")
-            headline = item.get("headline")
-            ts = item.get("datetime")
-            if not (url and headline and ts):
-                continue
-            batch.append(RawArticle(
-                url=url,
-                # The PUBLISHER, not 'finnhub'. normalize.py tiers on this.
-                source=(item.get("source") or SOURCE).strip().lower(),
-                headline=headline,
-                summary=item.get("summary") or None,
-                published_at=datetime.fromtimestamp(int(ts), UTC),
-                raw={"publisher": item.get("source"), "finnhub_id": item.get("id"),
-                     "category": item.get("category"), "related": item.get("related"),
-                     "ticker": ticker, "via": SOURCE},
-            ))
+        batch = [a for item in r.json() if (a := _to_raw(item, ticker))]
         n = insert_many(batch)
         bump_health(SOURCE, n)
         total += n
@@ -152,21 +163,7 @@ def backfill(start: date, end: date, chunk_days: int = 7,
             if r.status_code != 200:
                 logger.warning("backfill %s %s -> HTTP %s", ticker, frm, r.status_code)
                 continue
-            batch = []
-            for item in r.json():
-                url, headline, ts = item.get("url"), item.get("headline"), item.get("datetime")
-                if not (url and headline and ts):
-                    continue
-                batch.append(RawArticle(
-                    url=url,
-                    source=(item.get("source") or SOURCE).strip().lower(),
-                    headline=headline,
-                    summary=item.get("summary") or None,
-                    published_at=datetime.fromtimestamp(int(ts), UTC),
-                    raw={"publisher": item.get("source"), "finnhub_id": item.get("id"),
-                         "category": item.get("category"), "ticker": ticker,
-                         "via": SOURCE, "backfill": True},
-                ))
+            batch = [a for item in r.json() if (a := _to_raw(item, ticker, backfill=True))]
             total += insert_many(batch)
         logger.info("backfill %s..%s -> %d stored so far", frm, cur, total)
         cur = frm
