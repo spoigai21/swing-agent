@@ -16,7 +16,7 @@ from typing import Any
 from swing.common import logging as log
 from swing.common.http import sec_get
 from swing.common.timeutil import parse_iso
-from swing.ingest.config import cik_map, edgar_config
+from swing.ingest.config import edgar_config, edgar_targets
 from swing.store.raw import RawArticle, bump_health, insert_many
 from swing.store.session import connect
 
@@ -25,6 +25,8 @@ logger = log.get("ingest.edgar")
 SUBMISSIONS = "https://data.sec.gov/submissions/CIK{cik}.json"
 FILING_URL = "https://www.sec.gov/Archives/edgar/data/{cik_int}/{acc_nodash}/{doc}"
 SOURCE = "sec-edgar"
+# Forms kept for RELATED companies: events, not periodic reports.
+RELATED_FORMS = {"8-K", "8-K/A", "6-K"}
 
 
 def _recent_filings(cik: str) -> list[dict[str, Any]]:
@@ -114,13 +116,24 @@ def _save_cursor(cik: str, ticker: str, accession: str) -> None:
 
 
 def poll(first_run_limit: int = 40) -> int:
-    """Poll all watchlist CIKs. Returns the number of new filings stored."""
+    """Poll watchlist and related-company CIKs. Returns the number of new filings.
+
+    Related companies are included because another company's 8-K (a rival's
+    earnings, a customer's capex guidance) is often what moves a watchlist stock.
+    """
     cfg = edgar_config()
     wanted = set(cfg.get("forms") or ["8-K"])
     cursors = _cursor()
     total = 0
 
-    for ticker, cik in cik_map().items():
+    from swing.ingest.config import stocks
+
+    watchlist = set(stocks())
+    for ticker, cik in edgar_targets().items():
+        # Another company's EVENTS matter (8-K; 6-K for foreign filers). Its
+        # 10-Q/10-K restates the quarter its 8-K already announced, and in
+        # retrieval it crowded out the stock's own news.
+        forms = wanted if ticker in watchlist else wanted & RELATED_FORMS
         try:
             rows = _recent_filings(cik)
         except Exception:
@@ -130,7 +143,7 @@ def poll(first_run_limit: int = 40) -> int:
         seen = cursors.get(cik)
         batch: list[RawArticle] = []
         for row in rows:
-            if row.get("form") not in wanted:
+            if row.get("form") not in forms:
                 continue
             if seen and row.get("accessionNumber") == seen:
                 break  # rows are newest-first; everything below is already stored

@@ -156,6 +156,10 @@ publisher_tiers:
   netflix-ir: 1
 
   finnhub-recommendation: 2
+  # Individual broker actions (upgrade/downgrade/initiation/price target) from
+  # Yahoo Finance's structured ratings data, one synthetic article each.
+  # Timestamped to the second in UTC; see ingest/analyst.py.
+  analyst-ratings: 2
 
   # Tier 2 — wire services and press-release distributors
   reuters: 2

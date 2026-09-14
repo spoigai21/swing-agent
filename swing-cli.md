@@ -1,5 +1,19 @@
 # Building the `swing` Command
 
+> **Status (2026-09-14): this is the original spec. What was built differs in these places:**
+> - **The product is one question.** `swing` opens a prompt; every line is a question
+>   ("why is NVDA down?") answered by `interface/explain.py`, which fetches fresh prices
+>   and news first. A bare ticker works too. `swing ask "..."` and `swing why NVDA` use
+>   the same path.
+> - **Gemini use:** `ask` and `why` call Gemini only when the stock's own move is unusual
+>   (one request); `batch`, `daily` and `placebo` also call it. Normal days are answered
+>   with no model call.
+> - **`insight-agent-guide.md` never existed.** The forecast refusal was specified from
+>   scratch (`interface/guardrail.py`), and `idio_share` is `var(residual)/var(return)`.
+> - **Package layout** is `src/swing/` (`swing = "swing.cli:main"`), not `agent/cli.py`;
+>   see CODEBASE-PLAN.md §8.
+> - Design decisions and findings live in CODEBASE-PLAN.md §16.
+
 How to turn the insight agent into a terminal command you invoke by name — type `swing` from anywhere and it runs, the way `claude` does.
 
 Companion to `swing-attribution-agent-plan.md` and `insight-agent-guide.md`. This covers packaging and the command surface only; the tools and guardrails are specified in the insight guide.

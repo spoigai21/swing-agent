@@ -100,6 +100,14 @@ class TestRecallIsBlindOnly:
 
         assert "a.blind" in inspect.getsource(harness.recall_at_k)
 
+    def test_recall_passes_at_the_gate_2_mark(self, monkeypatch):
+        # Gate 2 is 0.80. The metric used agent-plan's longer-run 0.85, so a
+        # gate-passing 0.80 printed FAIL.
+        _patch(monkeypatch, [{"swing_id": i, "rank": 1} for i in range(4)]
+               + [{"swing_id": 9, "rank": None}])
+        m = harness.recall_at_k()
+        assert m.value == pytest.approx(0.8) and m.passing is True
+
 
 def _payload(*candidates):
     return {"candidates": [{"evidence": [{"cluster_id": c} for c in cited]}

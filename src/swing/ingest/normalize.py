@@ -73,9 +73,19 @@ def _ticker_patterns() -> dict[str, tuple[re.Pattern, re.Pattern]]:
     The alternation MUST be grouped: `(?<!x)A|B|C(?!x)` binds the lookbehind
     only to A and the lookahead only to C, silently defeating both guards.
     """
+    from swing.ingest.config import related_companies
+
+    # Keeps the standard guards so every symbol pattern has the same shape.
+    never = re.compile(r"(?<![A-Za-z0-9])(?!x)x(?![A-Za-z0-9])")
+    # Related companies are tagged too, so a story that names only Intel still
+    # reaches QCOM's retrieval. Their 1-2 letter symbols (U, F, GM) are ordinary
+    # words and are matched by alias only.
+    companies = [(t, m, True) for t, m in stocks().items()]
+    companies += [(t, m, len(t) >= 3) for t, m in related_companies().items()]
     pats = {}
-    for ticker, meta in stocks().items():
-        sym = re.compile(rf"(?<![A-Za-z0-9]){re.escape(ticker)}(?![A-Za-z0-9])")
+    for ticker, meta, match_symbol in companies:
+        sym = (re.compile(rf"(?<![A-Za-z0-9]){re.escape(ticker)}(?![A-Za-z0-9])")
+               if match_symbol else never)
         aliases = meta.get("aliases") or []
         joined = "|".join(re.escape(a) for a in aliases) or r"(?!x)x"
         alias = re.compile(rf"(?<![A-Za-z0-9])(?:{joined})(?![A-Za-z0-9])", re.IGNORECASE)
@@ -114,6 +124,28 @@ def resolve_tickers(row: dict[str, Any]) -> list[str]:
     text = f"{row.get('headline') or ''} {row.get('summary') or ''}"
     return sorted(t for t, (sym, alias) in _ticker_patterns().items()
                   if sym.search(text) or alias.search(text))
+
+
+def retag_all(batch: int = 2000) -> int:
+    """Re-derive `articles.tickers` from the archive after tagging config changes
+    (new related companies or aliases). Rows are updated in place, so cluster and
+    annotation references to article ids survive. Returns rows changed."""
+    changed, last_id = 0, 0
+    while True:
+        with connect() as conn:
+            rows = conn.execute(
+                "SELECT a.id, a.tickers, r.source, r.headline, r.summary, r.raw "
+                "FROM articles a JOIN articles_raw r ON r.id = a.raw_id "
+                "WHERE a.id > %s ORDER BY a.id LIMIT %s", (last_id, batch)).fetchall()
+        if not rows:
+            return changed
+        updates = [(tags, r["id"]) for r in rows
+                   if set(tags := resolve_tickers(r)) != set(r["tickers"] or [])]
+        if updates:
+            with connect() as conn, conn.cursor() as cur:
+                cur.executemany("UPDATE articles SET tickers = %s WHERE id = %s", updates)
+            changed += len(updates)
+        last_id = rows[-1]["id"]
 
 
 def event_hint(row: dict[str, Any]) -> str | None:

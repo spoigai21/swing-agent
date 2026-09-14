@@ -58,6 +58,20 @@ def staleness_budget(poll_seconds: int) -> float:
     return max(4 * poll_seconds, 1800) / 3600.0
 
 
+def feed_budgets() -> dict[str, float]:
+    """source -> hours of silence allowed before it counts as broken.
+
+    Every polled source must be here or it can die unnoticed: Finnhub news and
+    analyst ratings were missing, although `swing` answers depend on both.
+    Intervals match the collector's jobs.
+    """
+    budgets = {f.source: staleness_budget(f.poll_seconds) for f in feeds()}
+    budgets.setdefault("sec-edgar", staleness_budget(edgar_config().get("poll_seconds", 600)))
+    budgets.setdefault("finnhub", staleness_budget(6 * 3600))
+    budgets.setdefault("analyst-ratings", staleness_budget(3600))
+    return budgets
+
+
 def check_dead_feeds(quiet_days: int = 14) -> list[str]:
     """Alert on feeds that are BROKEN, not feeds whose publisher is quiet.
 
@@ -71,8 +85,7 @@ def check_dead_feeds(quiet_days: int = 14) -> list[str]:
     Keying the alert on published_at (as the first cut did) fires constantly for
     healthy IR feeds and trains you to ignore the one alert that matters.
     """
-    budgets = {f.source: staleness_budget(f.poll_seconds) for f in feeds()}
-    budgets.setdefault("sec-edgar", staleness_budget(edgar_config().get("poll_seconds", 600)))
+    budgets = feed_budgets()
 
     with connect() as conn:
         rows = conn.execute(

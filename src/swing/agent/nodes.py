@@ -31,7 +31,8 @@ def load_swing(state: AttributionState) -> dict[str, Any]:
         clusters = conn.execute(
             """
             SELECT c.id, c.timing, c.best_tier, c.distinct_sources, c.member_count,
-                   c.earliest_published, c.rank, a.headline, a.summary, a.source
+                   c.earliest_published, c.rank, a.headline, a.summary, a.source,
+                   a.tickers
             FROM clusters c JOIN articles a ON a.id = c.canonical_article
             WHERE c.swing_id=%s ORDER BY c.timing, c.rank
             """,

@@ -87,11 +87,11 @@ def _research_pane(swing: dict) -> None:
     """
     from datetime import timedelta
 
-    from swing.analysis.retrieval import retrieval_tickers
+    from swing.analysis.retrieval import own_tickers
 
     d, ticker = swing["d"], swing["ticker"]
     # A sector ETF files nothing itself; its constituents do.
-    filing_tickers = retrieval_tickers(dict(swing))
+    filing_tickers = own_tickers(dict(swing))
     with connect() as conn:
         filings = conn.execute(
             """

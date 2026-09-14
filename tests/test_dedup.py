@@ -69,6 +69,34 @@ class TestClustering:
                             "pre_move", cosine_threshold=0.85)
         assert len(cl) == 1 and cl[0].member_count == 3
 
+    def test_different_companies_never_merge(self):
+        # "MSFT 8-K — Item 2.02" and "AMZN 8-K — Item 2.02" embed almost
+        # identically; they are still two companies' earnings.
+        arts = [{**_art(1, _v(1, 0), source="cnbc"), "tickers": ["MSFT"]},
+                {**_art(2, _v(1, 0), source="wsj"), "tickers": ["AMZN"]}]
+        assert len(cluster_window(arts, "pre_move", cosine_threshold=0.9)) == 2
+
+    def test_two_sec_filings_never_merge(self):
+        arts = [{**_art(1, _v(1, 0), source="sec-edgar", tier=1), "tickers": ["TSLA"]},
+                {**_art(2, _v(1, 0), source="sec-edgar", tier=1), "tickers": ["TSLA"]}]
+        assert len(cluster_window(arts, "pre_move", cosine_threshold=0.9)) == 2
+
+    def test_a_story_cannot_bridge_two_filings_into_one_cluster(self):
+        # Filing A ~ story ~ filing B. Single-link alone would chain all three;
+        # the story may join one filing, never both.
+        a = {**_art(1, _v(1, 0), source="sec-edgar", tier=1), "tickers": ["TSLA"]}
+        story = {**_art(2, _v(0.95, 0.31), source="cnbc"), "tickers": ["TSLA"]}
+        b = {**_art(3, _v(0.81, 0.59), source="sec-edgar", tier=1), "tickers": ["TSLA"]}
+        clusters = cluster_window([a, story, b], "pre_move", cosine_threshold=0.9)
+        assert len(clusters) == 2
+        for c in clusters:
+            assert sum(m["source"] == "sec-edgar" for m in c.members) == 1
+
+    def test_rewrites_about_the_same_company_still_merge(self):
+        arts = [{**_art(1, _v(1, 0), source="sec-edgar", tier=1), "tickers": ["INTC"]},
+                {**_art(2, _v(1, 0), source="cnbc"), "tickers": ["INTC", "QCOM"]}]
+        assert len(cluster_window(arts, "pre_move", cosine_threshold=0.9)) == 1
+
     def test_empty_input(self):
         assert cluster_window([], "pre_move") == []
 

@@ -70,3 +70,59 @@ sectors:
 
 market:
   SPY: {name: SPDR S&P 500 ETF}
+
+# ---------------------------------------------------------------------------
+# Other companies' news. A competitor's blowout quarter, a big customer building
+# its own chips, a platform's price change: news about ANOTHER company is often
+# what moves a watchlist stock, and none of it names the stock. Measured
+# 2026-09-13: of 15 researched moves whose cause swing never held, the largest
+# group were exactly this (Intel earnings lifting QCOM, Amazon's chip push
+# hitting NVDA, Microsoft moving custom-chip work from MRVL to AVGO).
+#
+# `related` lists, per watchlist stock, the companies whose news retrieval also
+# searches. Chosen by business relationship (direct competitors, the largest
+# customers, key suppliers and platforms), NOT fitted to past misses. Related
+# evidence ranks below the stock's own news (ranking.w_related_penalty) and the
+# prompt labels it as being about another company.
+#
+# `related_companies` holds those outside the watchlist: CIK from the SEC
+# company tickers file (2026-09-14, zero-padded) for 8-K polling, and curated
+# aliases for tagging articles that name them. Symbols shorter than 3 letters
+# (U, F, GM) are never matched as bare words; only their aliases are.
+# ---------------------------------------------------------------------------
+related:
+  NVDA:  [AMD, INTC, TSM, MSFT, AMZN, META]    # GPU/CPU rivals, foundry, largest customers
+  MRVL:  [AVGO, NVDA, AMZN, MSFT]              # custom-silicon rival, partner, customers
+  MU:    [SNDK, WDC, STX, NVDA]                # memory/storage peers, HBM customer
+  SNDK:  [MU, WDC, STX]                        # NAND peers, former parent
+  AVGO:  [MRVL, NVDA, GOOGL, META, AAPL]       # rival, peer, custom-chip customers
+  QCOM:  [AAPL, INTC, AMD, ARM]                # modem customer, PC/AI rivals, licensor
+  AAPL:  [QCOM, GOOGL, TSM]                    # modem supplier, search/AI partner, foundry
+  GOOGL: [MSFT, META, AMZN]                    # cloud, ads and AI rivals
+  NFLX:  [DIS, WBD, PSKY, ROKU]                # streaming rivals, M&A counterparties, platform
+  TTWO:  [SONY, MSFT, RBLX, U]                 # console platforms, gaming peer, engine
+  TSLA:  [RIVN, GM, F]                         # EV and auto rivals
+  SBUX:  [MCD, CMG]                            # restaurant peers
+
+related_companies:
+  AMD:  {name: Advanced Micro Devices, cik: "0000002488", aliases: ["Advanced Micro Devices"]}
+  INTC: {name: Intel,                  cik: "0000050863", aliases: [Intel]}
+  TSM:  {name: TSMC,                   cik: "0001046179", aliases: [TSMC, "Taiwan Semiconductor"]}
+  ARM:  {name: Arm Holdings,           cik: "0001973239", aliases: ["Arm Holdings"]}
+  MSFT: {name: Microsoft,              cik: "0000789019", aliases: [Microsoft, Azure]}
+  AMZN: {name: Amazon,                 cik: "0001018724", aliases: [Amazon, AWS]}
+  META: {name: Meta Platforms,         cik: "0001326801", aliases: ["Meta Platforms", Meta]}
+  WDC:  {name: Western Digital,        cik: "0000106040", aliases: ["Western Digital"]}
+  STX:  {name: Seagate,                cik: "0001137789", aliases: [Seagate]}
+  SONY: {name: Sony,                   cik: "0000313838", aliases: [Sony, PlayStation]}
+  RBLX: {name: Roblox,                 cik: "0001315098", aliases: [Roblox]}
+  U:    {name: Unity Software,         cik: "0001810806", aliases: ["Unity Software"]}
+  DIS:  {name: Disney,                 cik: "0001744489", aliases: [Disney]}
+  WBD:  {name: Warner Bros. Discovery, cik: "0001437107", aliases: ["Warner Bros"]}
+  PSKY: {name: Paramount Skydance,     cik: "0002041610", aliases: [Paramount]}
+  ROKU: {name: Roku,                   cik: "0001428439", aliases: [Roku]}
+  RIVN: {name: Rivian,                 cik: "0001874178", aliases: [Rivian]}
+  GM:   {name: General Motors,         cik: "0001467858", aliases: ["General Motors"]}
+  F:    {name: Ford,                   cik: "0000037996", aliases: ["Ford Motor"]}
+  MCD:  {name: "McDonald's",           cik: "0000063908", aliases: ["McDonald's", McDonalds]}
+  CMG:  {name: Chipotle,               cik: "0001058090", aliases: [Chipotle]}

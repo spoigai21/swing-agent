@@ -68,6 +68,17 @@ def test_staleness_budget_scales_with_poll_interval():
     assert staleness_budget(60) == pytest.approx(0.5)
 
 
+def test_dead_feed_check_covers_every_polled_source():
+    # Finnhub news and analyst ratings feed every `swing` answer; a silent death
+    # of either must alert like an RSS feed does.
+    from swing.ingest.health import feed_budgets
+
+    budgets = feed_budgets()
+    for source in ("sec-edgar", "finnhub", "analyst-ratings"):
+        assert source in budgets, source
+    assert budgets["analyst-ratings"] == pytest.approx(4.0)   # hourly job -> 4 h
+
+
 def test_health_check_interval_is_tighter_than_the_tightest_budget():
     from swing.ingest.collector import build_jobs
     from swing.ingest.health import staleness_budget

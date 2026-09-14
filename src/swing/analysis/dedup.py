@@ -58,6 +58,21 @@ def _cosine_matrix(vecs: np.ndarray) -> np.ndarray:
     return unit @ unit.T
 
 
+def may_merge(a: dict, b: dict) -> bool:
+    """Whether two articles are even allowed to be the same story.
+
+    ⚠️ Two companies' news is never one story, and two SEC filings are two
+    documents. EDGAR headlines are templated ("MSFT 8-K — Item 2.02"), so once
+    related companies' filings entered retrieval, Microsoft's and Amazon's
+    earnings releases embedded as near-duplicates and merged into one cluster,
+    and Tesla's delivery 8-K was filed under Rivian's.
+    """
+    ta, tb = set(a.get("tickers") or []), set(b.get("tickers") or [])
+    if ta and tb and not ta & tb:
+        return False
+    return not (a.get("source") == "sec-edgar" and b.get("source") == "sec-edgar")
+
+
 def cluster_window(articles: list[dict], timing: str,
                    cosine_threshold: float | None = None) -> list[ClusterView]:
     """Single-link agglomerative clustering on embeddings within one window.
@@ -84,10 +99,19 @@ def cluster_window(articles: list[dict], timing: str,
             i = parent[i]
         return i
 
+    groups_of: dict[int, list[int]] = {i: [i] for i in range(len(articles))}
+
     def union(i: int, j: int) -> None:
         ri, rj = find(i), find(j)
-        if ri != rj:
-            parent[rj] = ri
+        if ri == rj:
+            return
+        # Check every cross pair, not just the two that matched: a single-link
+        # chain would otherwise bridge two filings through a story similar to both.
+        if not all(may_merge(articles[a], articles[b])
+                   for a in groups_of[ri] for b in groups_of[rj]):
+            return
+        parent[rj] = ri
+        groups_of[ri].extend(groups_of.pop(rj))
 
     for i in range(len(articles)):
         for j in range(i + 1, len(articles)):

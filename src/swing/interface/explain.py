@@ -40,7 +40,8 @@ SECTOR_LABELS = {"SMH": "chip stocks", "XLK": "tech stocks",
 SOURCE_LABELS = {"sec-edgar": "SEC filing", "dowjones": "Dow Jones", "wsj": "WSJ",
                  "marketwatch": "MarketWatch", "cnbc": "CNBC", "prnewswire": "PR Newswire",
                  "businesswire": "Business Wire", "google-blog": "Google blog",
-                 "finnhub-recommendation": "analyst ratings"}
+                 "finnhub-recommendation": "analyst ratings",
+                 "analyst-ratings": "analyst rating"}
 
 # Questions about the stored history rather than one stock's move; query.py
 # answers those with SQL.
@@ -237,13 +238,20 @@ def _decomposition(ticker: str, target: date, exact: bool):
 
 
 def _refresh_news(ticker: str, d: date) -> None:
-    """Pull SEC filings and company news that the collector may not hold yet."""
-    from swing.ingest import edgar, news_finnhub
+    """Pull what the collector may not hold yet: SEC filings (the stock's and its
+    related companies'), analyst actions, and news for the stock and each
+    related company."""
+    from swing.ingest import analyst, edgar, news_finnhub
+    from swing.ingest.config import related
     from swing.ingest.normalize import normalize_all
 
-    jobs = (("SEC filings", edgar.poll),
-            ("company news", lambda: news_finnhub.fetch(ticker, d - timedelta(days=3),
-                                                        d + timedelta(days=1))))
+    start, end = d - timedelta(days=3), d + timedelta(days=1)
+    since = datetime.combine(d - timedelta(days=7), time(), tzinfo=UTC)
+    jobs = [("SEC filings", edgar.poll),
+            ("analyst ratings", lambda: analyst.fetch(ticker, since)),
+            ("company news", lambda: news_finnhub.fetch(ticker, start, end))]
+    jobs += [(f"{t} news", lambda t=t: news_finnhub.fetch(t, start, end))
+             for t in related(ticker)]
     for name, fn in jobs:
         try:
             fn()
@@ -402,8 +410,8 @@ def render_verdict(verdict: str, payload: dict, note: str | None,
 
 
 def model_unavailable(evidence: list[dict]) -> str:
-    lines = [("\nCouldn't reach Gemini (the free tier allows 20 requests a day), so there's "
-              "no checked reason yet. Ask again later.")]
+    lines = [("\nGemini didn't answer (it may be overloaded, or past the free tier's "
+              "daily limit), so there's no checked reason yet. Ask again in a few minutes.")]
     if evidence:
         lines.append("  News from before the move, most relevant first (not yet checked):")
         lines += [f"  • {_when(r['earliest_published'])} · {_source_label(r['source'])}"

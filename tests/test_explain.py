@@ -145,6 +145,26 @@ class TestRouting:
         assert "only cover these stocks" in ex.respond("why is AMD down?")
 
 
+def test_model_calls_cannot_hang_a_question():
+    """The Gemini client defaults to no timeout and 6 retries; when the model
+    stopped answering, a question hung instead of failing cleanly."""
+    import inspect
+
+    from swing.agent import llm
+
+    src = inspect.getsource(llm.get_llm)
+    assert "timeout=60" in src and "max_retries=1" in src
+
+
+def test_overload_is_retried_like_a_rate_limit():
+    # One 503 "high demand" spike used to fail the whole question.
+    from swing.agent import llm
+
+    assert llm._is_transient(RuntimeError("503 UNAVAILABLE. high demand"))
+    assert llm._is_transient(RuntimeError("429 RESOURCE_EXHAUSTED"))
+    assert not llm._is_transient(ValueError("schema validation failed"))
+
+
 def test_failed_model_call_is_not_stored_as_a_verdict(monkeypatch):
     """A quota error used to be persisted as `unexplained`, which scored as a
     correct abstention in the placebo test and was served as a real answer."""

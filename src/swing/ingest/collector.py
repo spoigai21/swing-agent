@@ -18,7 +18,7 @@ from pathlib import Path
 
 from swing.common import logging as log
 from swing.common.settings import REPO_ROOT, get_settings
-from swing.ingest import edgar, health, news_finnhub, news_rss, normalize
+from swing.ingest import analyst, edgar, health, news_finnhub, news_rss, normalize
 from swing.ingest.config import edgar_config, feeds
 
 logger = log.get("collector")
@@ -64,6 +64,9 @@ def build_jobs() -> list[Job]:
                     fn=lambda: news_finnhub.poll(days=7)))
     jobs.append(Job(name="finnhub-recs", interval=12 * 3600.0,
                     fn=news_finnhub.poll_recommendations))
+    # Broker upgrades, downgrades and price targets, timestamped to the second.
+    jobs.append(Job(name="analyst-ratings", interval=3600.0,
+                    fn=lambda: analyst.poll(since_days=30)))
 
     # Drain articles_raw -> articles continuously. Without this the backlog
     # grows unbounded and nothing downstream (retrieval, clustering) sees new
@@ -76,6 +79,13 @@ def build_jobs() -> list[Job]:
         # would let a dead feed run most of its budget before anyone looked.
         Job(name="health-check", interval=1800.0, fn=health.check_dead_feeds)
     )
+
+    # Once-a-day work, checked every 15 min: the post-close run + alerts, and the
+    # nightly placebo batch. See interface/schedule.py.
+    from swing.interface import schedule
+
+    jobs.append(Job(name="scheduled-daily", interval=900.0, fn=schedule.daily_if_due))
+    jobs.append(Job(name="scheduled-placebo", interval=900.0, fn=schedule.placebo_if_due))
     return jobs
 
 

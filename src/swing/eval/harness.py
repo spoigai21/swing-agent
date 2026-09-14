@@ -53,11 +53,13 @@ def recall_at_k(k: int = 10) -> Metric:
             FROM annotations a
             WHERE a.blind AND NOT a.no_catalyst
             """).fetchall()
+    # Pass mark is Gate 2's 0.80. agent-plan.md 4.2 lists 0.85 as the longer-run
+    # target; showing 0.85 here marked a gate-passing 0.80-0.85 as FAIL.
     if not rows:
-        return Metric(f"recall@{k} (blind)", None, 0, "> 0.85", None)
+        return Metric(f"recall@{k} (blind)", None, 0, ">= 0.80", None)
     hits = sum(1 for r in rows if r["rank"] is not None and r["rank"] <= k)
     v = hits / len(rows)
-    return Metric(f"recall@{k} (blind)", v, len(rows), "> 0.85", v > 0.85)
+    return Metric(f"recall@{k} (blind)", v, len(rows), ">= 0.80", v >= 0.80)
 
 
 def _top_cited(payload: dict | None) -> set[int]:

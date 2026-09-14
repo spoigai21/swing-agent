@@ -80,11 +80,16 @@ def fetch(ticker: str, start: date, end: date) -> int:
 
 
 def poll(days: int = 7) -> int:
-    """Company news for every watchlist ticker over the last `days`."""
+    """Company news for every watchlist and related company over the last `days`.
+
+    Related companies are polled because their news is often what moves a
+    watchlist stock (config/watchlist.yaml `related`)."""
+    from swing.ingest.config import related_companies
+
     end = datetime.now(UTC).date()
     start = end - timedelta(days=days)
     total = 0
-    for ticker in stocks():
+    for ticker in [*stocks(), *related_companies()]:
         try:
             total += fetch(ticker, start, end)
         except Exception:

@@ -22,6 +22,9 @@ One-shot forms: `swing ask "why is NVDA down?"` · `swing why NVDA --date 2026-0
 - Each question fetches fresh prices and news first. A normal day is answered in
   a second or two with no model call; an unusual move takes ~20s and uses one
   Gemini request (free tier: 20/day). Asking again reuses the stored answer.
+- Evidence: SEC filings, company press releases, WSJ / CNBC / MarketWatch / Dow Jones,
+  analyst rating changes, and news about related companies (competitors, big
+  customers, suppliers), each placed before or after the moment the move started.
 - When nothing published before the move explains it, it says so instead of guessing.
 - It refuses forecasts ("is NVDA a buy?").
 - Answers are only as good as the news it holds, so keep the collector running (below).
@@ -54,8 +57,18 @@ nohup caffeinate -is swing collect --daemon > data/collector.nohup.log 2>&1 &
   echo $! > data/collector.pid        # start  (see the sleep caveat below)
 ```
 
-Polls: EDGAR 8-K every 10 min (12 CIKs) · IR RSS every 10 min · tier-3 press
-every 15 min · dead-feed check every 6 h.
+Polls: EDGAR every 10 min (12 stocks + 21 related companies) · IR/press RSS every
+10-15 min · Finnhub news every 6 h · analyst ratings hourly · normalize every
+5 min · dead-feed check every 30 min.
+
+Scheduled inside the collector (`interface/schedule.py`), so no cron is needed:
+- **Weekdays 16:45 ET** — refresh, detect the day's swings, explain up to 3 new big
+  moves, alert on |z| ≥ 3.
+- **Nightly 00:30 PT** — 12 placebo cases toward Gate 4's 200.
+
+That is 15 of the 20 free Gemini requests a day, leaving 5 for questions (normal
+days and repeated questions cost nothing). Each job records its last run in
+`data/schedule_*.last`; delete a file to make that job run again today.
 
 ### ⚠️ Two persistence caveats — read both
 

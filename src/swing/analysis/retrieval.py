@@ -89,22 +89,49 @@ def _prev_close_ts(ticker: str, d) -> datetime:
     return datetime.combine(base, time(20, 0), tzinfo=UTC)
 
 
-def retrieval_tickers(swing: dict) -> list[str]:
-    """Which ticker tags to search for this entity.
+def own_tickers(swing: dict) -> list[str]:
+    """The tags that make an article THIS entity's own news.
 
     A sector ETF is never itself tagged on an article — nobody writes "XLC" in a
     headline — so searching for its own symbol returns nothing and every sector
     swing abstains for lack of evidence. agent-plan.md 0.1b: retrieval for a
-    sector entity searches INDUSTRY-level news instead.
-
-    We approximate the industry by the constituents we already track, which is
-    exactly the set whose moves define the sector residual.
+    sector entity searches INDUSTRY-level news instead, approximated by the
+    constituents we track, which is exactly the set that defines the sector
+    residual.
     """
     if swing.get("entity_type") != "sector":
         return [swing["ticker"]]
     etf = swing["ticker"]
     members = [t for t, m in stocks().items() if m.get("sector_etf") == etf]
     return members or [etf]
+
+
+def retrieval_tickers(swing: dict) -> list[str]:
+    """Own tags first, then related companies for a stock.
+
+    News about another company (a rival's results, a customer's chip plans) is
+    often the cause of a stock's move and never names the stock, so a stock
+    also searches its related companies (config/watchlist.yaml `related`).
+    Sectors do not: their constituents already are the industry.
+    """
+    from swing.ingest.config import related
+
+    own = own_tickers(swing)
+    if swing.get("entity_type") == "sector":
+        return own
+    return own + [t for t in related(swing["ticker"]) if t not in own]
+
+
+def admissible(article: dict, own: list[str]) -> bool:
+    """Drop a related company's periodic reports from a stock's evidence.
+
+    Its 8-K is the event; the 10-Q/10-K filed alongside restates the quarter. On
+    NVDA 2026-04-30 Meta's and Amazon's 10-Qs ranked first and second, above
+    everything about Nvidia itself.
+    """
+    if article.get("source") != "sec-edgar" or set(article.get("tickers") or []) & set(own):
+        return True
+    return not any(f" {form}" in article.get("headline", "") for form in ("10-Q", "10-K"))
 
 
 def build_for_swing(swing_id: int, persist: bool = True) -> dict[str, list[ClusterView]]:
@@ -128,10 +155,12 @@ def build_for_swing(swing_id: int, persist: bool = True) -> dict[str, list[Clust
     max_tier = int(thresholds()["retrieval"]["exclude_tier"]) - 1
 
     out: dict[str, list[ClusterView]] = {}
-    corpus = trailing_corpus(tickers, onset, exclude_after=pre_w.start)
+    own = own_tickers(dict(swing))
+    corpus = trailing_corpus(own, onset, exclude_after=pre_w.start)
     qvec = _query_vec(swing)
     for timing, w in (("pre_move", pre_w), ("post_move", post_w)):
-        arts = _articles_in(tickers, w.start, w.end, max_tier)
+        arts = [a for a in _articles_in(tickers, w.start, w.end, max_tier)
+                if admissible(a, own)]
         clusters = cluster_window(arts, timing)
         if timing == "pre_move":
             nov = {c.canonical_article: novelty_score(c, corpus) for c in clusters}
@@ -139,7 +168,7 @@ def build_for_swing(swing_id: int, persist: bool = True) -> dict[str, list[Clust
             nov = None
         # Rank pre-move on the full score; post-move is context, ordered by time.
         if timing == "pre_move":
-            clusters = score_clusters(clusters, onset, qvec, nov)
+            clusters = score_clusters(clusters, onset, qvec, nov, own=set(own))
         else:
             clusters = sorted(clusters, key=lambda c: c.earliest_published)
             for i, c in enumerate(clusters, start=1):

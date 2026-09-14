@@ -1285,3 +1285,157 @@ coverage, but news-side context does not exist for historical dates.
 
 Step 5 (the attribution agent) does **not** depend on Gate 2 and can proceed:
 its inputs are clusters, which now exist.
+
+---
+
+# 16 — Direction change and phase audit (2026-09-14)
+
+## 16.1 The requirements changed
+
+| Before | Now |
+|---|---|
+| A research pipeline driven by subcommands (`batch`, `retrieve`, `annotate`, `why` on stored swings) | **One question.** `swing` opens a prompt; "why is NVDA down?" returns the reason with sources, or says nothing published before the move explains it (`interface/explain.py`) |
+| Answers read whatever the last batch stored | **Each question refreshes what it needs:** prices for the stock, its sector ETF and SPY; its split; intraday + onset for that day; SEC filings, analyst actions and news for the stock and its related companies |
+| Gate 2 measured by ≥30 blind annotations done by hand | **An independent answer key:** 36 moves whose causes were researched from filings and news without seeing retrieval, plus a spot-check page for the user (`src/swing/eval/answer_key/`) |
+| Sources: EDGAR, IR/press RSS, Finnhub company news | **Plus analyst actions and other companies' news**, the two gaps the answer key measured (§16.3) |
+
+Scope stays the 12 watchlist stocks; any US stock is a later step. The
+standards are unchanged: explain the residual, timing is evidence, abstain in
+code, cite only what was retrieved, never forecast.
+
+## 16.2 Findings since §15 (Steps 5–8 and after)
+
+- **Gate 3 passed 5/5** on `attribution_v1`. The nested `Attribution` schema works
+  on Gemini; the flat fallback stayed dormant.
+- **Free-tier Gemini is 20 requests/day per model.** Production fits; a 200-case
+  placebo sweep takes ~10 days and must accumulate per system version.
+- **Placebo design flaws, fixed:** donors from later weeks carried contradictory
+  timing labels; results from different eval designs pooled (`eval_hash`).
+- **UNIQUE on a nullable column never fired** (migration 0002): 101 duplicate swings.
+- **Annotation labels blocked cluster rebuilds** (migration 0005): the FK to
+  `clusters(id)` made re-ranking impossible for labelled swings, freezing recall.
+  Labels are now article ids.
+- **Finnhub `datetime` is Eastern wall clock encoded as UTC** (migration 0006):
+  every Finnhub article, about half the evidence, sat 4-5 h early, filing
+  post-move commentary as pre-move evidence. Verified against CNBC's own RSS and
+  EDGAR acceptance times; 70,249 rows corrected reversibly.
+- **Failed model calls were stored as `unexplained`**, served as answers and
+  scored as correct placebo abstentions. `persist`, placebo, `daily` and `batch`
+  now skip/stop on `llm_error`.
+- **The old `swing ask "why is NVDA going up"` answered about a swing 17 days
+  stale** and ran no agent; prices were 13 days old because nothing scheduled the
+  batch. That is what the one-question flow replaces.
+- **Answer key baseline: 18/33 (0.55).** Every hit ranked #1-2; all 15 misses
+  were news never held (none ranked low). Largest groups: other companies' news,
+  media scoops, keynotes, analyst notes.
+
+## 16.3 Sources added, and what was deliberately not
+
+**Analyst actions** (`ingest/analyst.py`, tier 2 `analyst-ratings`). Finnhub's
+upgrade/downgrade and price-target endpoints are paid (403). Yahoo's
+`upgrades_downgrades` is free, years deep and timestamped to the second in UTC,
+verified against 208 of the same actions on Benzinga (always 1-3 min later).
+2,495 actions since 2024-09 backfilled; hourly collector job; refreshed per
+question.
+
+**Other companies' news.** `config/watchlist.yaml` `related` maps each stock to
+the companies whose news also moves it (direct competitors, largest customers,
+key suppliers/platforms), with 21 outside the watchlist in `related_companies`.
+For them: EDGAR 8-K/10-Q polling (2,066 filings backfilled), Finnhub company
+news (12 months backfilled), and alias tagging of RSS copy (1-2 letter symbols
+matched by name only). Retrieval searches related tickers; clusters only about a
+related company pay `ranking.w_related_penalty` (0.5, one tier step) and carry
+an `about:` line in the prompt. `attribution_v2` tells the model such news needs
+a stated connection and that routine "maintains" notes rarely explain a big move.
+
+**Not added:** the ~66k archived Yahoo/Benzinga/SeekingAlpha items stay tier 4.
+Yahoo's original publisher cannot be recovered (Finnhub gives a generic image
+URL), so Reuters copy arriving via Yahoo remains excluded with the SEO content.
+
+⚠️ **Hindsight risk.** The related map was chosen by business relationship, but
+it is measured on the same 33 moves that exposed the gap. Treat any improvement
+there as optimistic until it holds on moves researched afterwards.
+
+## 16.4 Phase audit
+
+| Phase (agent-plan) | What it must do now | State after this audit | Gate |
+|---|---|---|---|
+| −1 Collector | Collect continuously, including the new sources | Running with analyst and related-company jobs. Dead-feed alert extended to Finnhub news and analyst ratings, which it could not see before | Passed. **Open:** laptop sleep and `~/Desktop` TCC still threaten continuity (§8.5, §10.6) |
+| 0 Data | Fresh prices per question; correct timestamps; the two new sources | `prices.refresh_daily` per question; Finnhub times corrected; analyst + related data backfilled | Bars pass. "90 days of articles" met through the 12-month Finnhub backfill (tier 3 subset); live RSS only since 2026-08-30 |
+| 1 Split, swings, onset | Same maths; one day at a time for a question | `swings.detect_day` captures intraday and onset for the asked-about day | Passed. The question path does not use drift swings |
+| 2 Retrieval | Find the real cause in the top 10, measured on the answer key | Related-company retrieval and ranking penalty added; dedup thresholds and ranking weights still untuned; recall pass mark corrected to Gate 2's 0.80 (was 0.85) | **Not passed.** See §16.6 |
+| 3 Agent | Explain from own and related news; abstain in code | `attribution_v3` on `gemini-3.6-flash`; guards unchanged; model calls time out and retry transient errors | **Passed 5/5 on v3** (v2 failed 4/5), §16.6 |
+| 4 Evaluation | Confabulation < 10% over 200 placebo cases on the current version | Placebo restarted on the new version (config + prompt changed); failed calls no longer scored. **12 cases now run nightly** from the collector (00:30 PT, after the quota reset) | **Open** until 200 accumulate (~17 nights), §16.6 |
+| 5 ML | Unchanged | Not started | Blocked on Gates 2 and 4 |
+| 6 Interface | One question in, one answer out; alerts on big moves | Built. The collector now runs the post-close batch (up to 3 attributions, last 3 days only) and alerts every weekday at 16:45 ET (`interface/schedule.py`); launchd/cron cannot read `~/Desktop`, the running collector can | End-to-end live runs verified; scheduled runs start the next weekday |
+
+`agent-plan.md`, `data-sources.md` and `swing-cli.md` are the original specs and
+stay as written; this document records where the build departs from them
+(data-sources C.3 tier 2, C.4 analyst actions, B.1 Finnhub prices; swing-cli.md
+carries a status banner).
+
+## 16.5 Bugs the new sources exposed, fixed before measuring
+
+- **Different companies' filings merged into one cluster.** EDGAR headlines are
+  templated, so "MSFT 8-K — Item 2.02" and "AMZN 8-K — Item 2.02" embed as
+  near-duplicates; Tesla's delivery 8-K was filed under Rivian's. `dedup.may_merge`
+  now forbids merging articles about disjoint companies and any two SEC filings,
+  checked across whole groups so a story cannot bridge two filings. After
+  rebuild: 0 mixed-company clusters, 0 multi-filing clusters.
+- **Related companies' 10-Q/10-K crowded out a stock's own news** (NVDA 2026-04-30
+  ranked Meta's and Amazon's 10-Qs first). Related companies now contribute 8-K/6-K
+  events only (`edgar.RELATED_FORMS`, `retrieval.admissible`).
+- **A question could hang forever.** The Gemini client defaults to no timeout and
+  6 retries; when `gemini-3.7-flash` stopped answering (2026-09-14, 45 s read
+  timeouts; `gemini-3.5-flash` 503 "high demand") a question never returned.
+  Now 60 s × 2 attempts, then the "couldn't reach Gemini" answer.
+- **`swing batch` still stored failed calls**; **`swing metrics` failed recall
+  between 0.80 and 0.85**; **the dead-feed alert could not see Finnhub news or
+  analyst ratings**. All fixed.
+
+## 16.6 Results
+
+**Retrieval recall@10 on the answer key: 18/33 (0.55) → 22/33 (0.67).** No earlier
+hit lost. Loaded into `annotations` (blind), so `swing metrics` now reports it.
+
+| Move | New match | Source |
+|---|---|---|
+| QCOM 2026-04-24 +10.5% | Intel's earnings 8-K, rank 1 | related-company filing |
+| MRVL 2025-12-08 −7.2% | Benchmark downgrades Marvell to Hold, rank 1 | analyst action |
+| AAPL 2026-02-02 +4.0% | JPMorgan raises Apple target to $325, rank 2 | analyst action (answer key itself low confidence) |
+| NVDA 2026-06-01 +6.1% | CNBC on Nvidia's Computex "reinvention", rank 5 | related-tagged story (borderline; 21/33 without it) |
+
+Still **Gate 2 FAIL** (0.80). The 11 misses: media scoops (The Information,
+Bloomberg), keynotes and product launches, a leak, Google's Genie hitting gaming
+stocks (no a-priori relationship), and moves the answer key itself could not
+explain well. Side effect: post-earnings broker notes now often take rank 1,
+pushing the earnings filing to rank 2-3 (still in the top 10).
+
+**Model re-pinned to `gemini-3.6-flash`.** On 2026-09-14 every Flash model was
+intermittently overloaded: `gemini-3.7-flash` timed out or returned 503,
+`gemini-3.8-flash` (what `gemini-flash-latest` now resolves to) returned 503,
+`gemini-2.5-flash` is retired. `gemini-3.6-flash` is a stable release and handled
+the nested `Attribution` schema. Transient 429/503 now retry three times over
+~30 s (`llm._is_transient`) instead of failing the question on one spike.
+
+**Gate 3 on the new prompt: failed on v2, passes on v3.**
+
+| Prompt | Model | Result |
+|---|---|---|
+| `attribution_v2` | gemini-3.6-flash | **4/5 FAIL.** AVGO swing 300 with donor 288: an Item 5.02 8-K from weeks earlier offered as a partial cause |
+| `attribution_v3` | gemini-3.6-flash | **5/5 PASS**, same five cases |
+
+The v3 change: each cluster states its distance from the onset ("17h before the
+move started", "19 days before…"), and the prompt says a catalyst is almost
+always published within about a day of the move, with older news already priced
+in. Deliberately NOT a code filter on stale evidence: in production, retrieval
+windows already bound evidence to ≤48 h, so such a filter would only make the
+placebo test pass automatically and stop it measuring the model (§eval/placebo.py).
+
+**Live check, related-company path:** "why did Qualcomm jump on 2026-04-24?" →
+*Partly explained: Intel reported blowout Q1 results and guidance after the prior
+close, driving a rally across semiconductor peers*, citing Intel's 8-K (4:07pm ET
+the day before), medium confidence. Matches the answer key.
+
+**Gate 4 remains open:** the placebo count restarted at 0 on the current version
+(model, prompt v3, config) and needs 200 cases at up to 20 requests/day.

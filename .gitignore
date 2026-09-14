@@ -2,6 +2,9 @@
 __pycache__/
 *.py[cod]
 .env
+# Any copy of .env holds real API keys (e.g. .env.bak-2026-09-14).
+.env.*
+!.env.example
 .pytest_cache/
 .ruff_cache/
 data/

@@ -28,14 +28,19 @@ from swing.common.settings import get_settings
 _llm_limiter = _RateLimiter(4.0)   # free tiers throttle per-minute as well as per-day
 
 
-def _is_rate_limit(exc: BaseException) -> bool:
-    return "429" in str(exc) or "RESOURCE_EXHAUSTED" in str(exc)
+def _is_transient(exc: BaseException) -> bool:
+    """Rate limits (429) and overload (503). Both usually clear quickly."""
+    text = str(exc)
+    return any(s in text for s in ("429", "RESOURCE_EXHAUSTED", "503", "UNAVAILABLE"))
 
 
 @retry(
-    retry=retry_if_exception(_is_rate_limit),
-    wait=wait_exponential(multiplier=2, min=10, max=120),
-    stop=stop_after_attempt(4),
+    retry=retry_if_exception(_is_transient),
+    # A person is waiting at the prompt: three tries over ~30 s, not minutes.
+    # On 2026-09-14 every Flash model returned intermittent 503 "high demand";
+    # only 429 was retried, so one spike failed the whole question.
+    wait=wait_exponential(multiplier=2, min=5, max=20),
+    stop=stop_after_attempt(3),
     reraise=True,
 )
 def invoke_with_retry(runnable, prompt: str):
@@ -69,6 +74,12 @@ def get_llm(temperature: float = 0.0, **kwargs: Any):
         model=model,
         temperature=temperature,
         google_api_key=settings.gemini_api_key,
+        # ⚠️ The client defaults to NO timeout and 6 retries. On 2026-09-14 the
+        # pinned model stopped answering and a question hung indefinitely
+        # instead of reporting "couldn't reach Gemini". Bounded: at most two
+        # 60 s attempts, then llm_attribute records llm_error.
+        timeout=60,
+        max_retries=1,
         # Thinking/reasoning is left at the provider default and should be
         # minimised on this node: longer reasoning chains measurably degrade
         # abstention recall, and abstention is what this node exists to get

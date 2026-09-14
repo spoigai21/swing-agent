@@ -47,6 +47,9 @@ ranking:
   w_tier: 0.5
   w_novelty: 0.0             # stays 0 until Phase 5.1 beats its baseline
   timing_halflife_hours: 12  # decay of timing_score with distance before onset
+  # Subtracted from clusters that are only about a RELATED company, so at equal
+  # relevance a stock's own news outranks a competitor's. One tier step.
+  w_related_penalty: 0.5
   top_k: 10
 
 retrieval:

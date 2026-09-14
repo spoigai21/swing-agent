@@ -48,6 +48,33 @@ def cik_map() -> dict[str, str]:
     return out
 
 
+def related_companies() -> dict[str, dict[str, Any]]:
+    """Companies outside the watchlist whose news can move a watchlist stock."""
+    return watchlist().get("related_companies") or {}
+
+
+def related(ticker: str) -> list[str]:
+    """Related tickers for one watchlist stock (may include other watchlist stocks)."""
+    return list((watchlist().get("related") or {}).get(ticker) or [])
+
+
+def company_name(ticker: str) -> str:
+    meta = stocks().get(ticker) or related_companies().get(ticker) or {}
+    return str(meta.get("name", ticker))
+
+
+def edgar_targets() -> dict[str, str]:
+    """ticker -> CIK for every company whose filings are polled: the watchlist
+    plus related companies. Padding asserted, as in cik_map()."""
+    out = dict(cik_map())
+    for ticker, meta in related_companies().items():
+        cik = str(meta["cik"])
+        if len(cik) != 10 or not cik.isdigit():
+            raise ValueError(f"{ticker}: CIK {cik!r} is not zero-padded to 10 digits")
+        out[ticker] = cik
+    return out
+
+
 def feeds(include_disabled: bool = False) -> list[FeedSpec]:
     out = []
     for f in sources()["feeds"]:

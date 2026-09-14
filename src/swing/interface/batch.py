@@ -43,11 +43,14 @@ class BatchResult:
 
 
 def run(day: date | None = None, attribution_limit: int = 15,
-        skip_prices: bool = False, skip_attribution: bool = False) -> BatchResult:
+        skip_prices: bool = False, skip_attribution: bool = False,
+        attribute_since: date | None = None) -> BatchResult:
     """One end-to-end daily run.
 
     Each stage is wrapped: a failure in one must not abort the rest, because a
-    price-vendor outage should never stop the news pipeline.
+    price-vendor outage should never stop the news pipeline. `attribute_since`
+    limits the (quota-spending) attribution stage to recent swings, so a
+    scheduled run explains today's moves rather than working through history.
     """
     from swing.analysis.factors import rebuild_all
     from swing.analysis.retrieval import build_all
@@ -89,13 +92,13 @@ def run(day: date | None = None, attribution_limit: int = 15,
 
     if not skip_attribution:
         res.attributed = stage("attribute",
-                               lambda: _attribute(attribution_limit)) or {}
+                               lambda: _attribute(attribution_limit, attribute_since)) or {}
 
     logger.info("batch complete: %s", res.summary())
     return res
 
 
-def _attribute(limit: int) -> dict[str, int]:
+def _attribute(limit: int, since: date | None = None) -> dict[str, int]:
     """Attribute unattributed swings, sectors first, newest first."""
     from swing.agent.graph import attribute_swing
     from swing.store.session import connect
@@ -110,10 +113,11 @@ def _attribute(limit: int) -> dict[str, int]:
               AND s.onset_ts IS NOT NULL
               AND EXISTS (SELECT 1 FROM clusters c
                           WHERE c.swing_id=s.id AND c.timing='pre_move')
+              AND (%(since)s::date IS NULL OR s.d >= %(since)s::date)
             ORDER BY (s.entity_type='sector') DESC, s.d DESC, abs(s.residual_z) DESC
-            LIMIT %s
+            LIMIT %(limit)s
             """,
-            (limit,),
+            {"since": since, "limit": limit},
         ).fetchall()
 
     counts: dict[str, int] = {}

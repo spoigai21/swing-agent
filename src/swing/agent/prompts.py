@@ -31,27 +31,65 @@ def load(version: str | None = None) -> tuple[str, str]:
     return chosen.stem, chosen.read_text()
 
 
-def _fmt_clusters(clusters: list[dict]) -> str:
+def _about(cluster: dict, own: set[str] | None) -> str:
+    """An `about:` line for news that is only about a related company.
+
+    Without it, "INTC 8-K — Item 2.02" in QCOM's evidence reads as if it were
+    QCOM's own disclosure."""
+    tickers = set(cluster.get("tickers") or [])
+    if not own or not tickers or tickers & own:
+        return ""
+    from swing.ingest.config import company_name
+
+    names = ", ".join(f"{company_name(t)} ({t})" for t in sorted(tickers))
+    return (f"\n    about: {names}. This is news about a RELATED company, "
+            f"not {'/'.join(sorted(own))}")
+
+
+def _relative(published: datetime, onset: datetime | None) -> str:
+    """'26h before the move started' / '19 days before ...' / '2h after ...'.
+
+    ⚠️ Raw UTC stamps left the model to do date arithmetic. On 2026-09-14 Gate 3
+    failed because a Broadcom 8-K from weeks earlier was offered as the cause of
+    a move; stating the distance makes staleness impossible to overlook
+    (agent-plan.md 3.5).
+    """
+    if onset is None:
+        return ""
+    hours = (onset - published).total_seconds() / 3600
+    side = "before" if hours >= 0 else "after"
+    h = abs(hours)
+    span = f"{h:.0f}h" if h < 48 else f"{h / 24:.0f} days"
+    return f"  ({span} {side} the move started)"
+
+
+def _fmt_clusters(clusters: list[dict], own: set[str] | None = None,
+                  onset: datetime | None = None) -> str:
     """Numbered list with timing impossible to overlook. agent-plan.md 3.5."""
     if not clusters:
         return "(none)"
     out = []
     for c in clusters:
         published = c["earliest_published"]
-        ts = published.strftime("%Y-%m-%d %H:%M UTC") if isinstance(published, datetime) \
-            else str(published)
+        is_dt = isinstance(published, datetime)
+        ts = published.strftime("%Y-%m-%d %H:%M UTC") if is_dt else str(published)
+        when = _relative(published, onset) if is_dt else ""
         out.append(
             f"[cluster_id={c['id']}]  timing={c['timing']}  tier={c['best_tier']}  "
-            f"published={ts}  distinct_sources={c['distinct_sources']}\n"
+            f"published={ts}{when}  distinct_sources={c['distinct_sources']}\n"
             f"    source: {c['source']}\n"
             f"    headline: {c['headline']}"
             + (f"\n    summary: {c['summary'][:300]}" if c.get("summary") else "")
+            + _about(c, own)
         )
     return "\n\n".join(out)
 
 
 def render(swing: dict, decomposition_sentence: str,
            pre: list[dict], post: list[dict], version: str | None = None) -> tuple[str, str]:
+    from swing.analysis.retrieval import own_tickers
+
+    own = set(own_tickers(swing))
     ver, template = load(version)
     return ver, template.format(
         decomposition=decomposition_sentence,
@@ -64,7 +102,7 @@ def render(swing: dict, decomposition_sentence: str,
         onset_ts=swing["onset_ts"].strftime("%Y-%m-%d %H:%M UTC") if swing["onset_ts"] else "unknown",
         volume_z=float(swing["volume_z"] or 0.0),
         earnings_mode=swing["earnings_mode"],
-        pre_clusters=_fmt_clusters(pre),
-        post_clusters=_fmt_clusters(post),
+        pre_clusters=_fmt_clusters(pre, own, swing["onset_ts"]),
+        post_clusters=_fmt_clusters(post, own, swing["onset_ts"]),
         earnings_instruction=EARNINGS_INSTRUCTION if swing["earnings_mode"] else "",
     )

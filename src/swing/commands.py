@@ -443,6 +443,11 @@ def batch(date: str | None = None, limit: int | None = None) -> int:
             print(f"  {r['ticker']} {r['d']}: FAILED {type(e).__name__}: {str(e)[:60]}")
             counts["error"] = counts.get("error", 0) + 1
             continue
+        if out.get("verdict_reason") == "llm_error":
+            # Usually the daily quota: nothing was stored, and the rest would fail too.
+            print(f"  {r['ticker']} {r['d']}: model unavailable (daily quota?); stopping")
+            counts["stopped"] = counts.get("stopped", 0) + 1
+            break
         attr = out.get("attribution")
         v = attr.verdict if attr else "error"
         counts[v] = counts.get(v, 0) + 1
