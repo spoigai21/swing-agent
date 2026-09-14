@@ -173,6 +173,11 @@ def persist(state: AttributionState) -> dict[str, Any]:
     attr = state["attribution"]
     if attr is None or not state.get("persist", True):
         return {}
+    if state.get("verdict_reason") == "llm_error":
+        # The model call failed, usually on the free-tier daily quota. That is
+        # not a verdict: storing it as `unexplained` served a non-answer as an
+        # answer and scored as a correct abstention in the placebo test.
+        return {}
     # Record the ACTIVE prompt version even on the non-LLM paths. Those verdicts
     # are prompt-independent, but the stamp documents what configuration was
     # live, which is the point of 3.1b; verdict_reason says whether a prompt was

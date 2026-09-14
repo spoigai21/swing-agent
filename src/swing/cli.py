@@ -12,19 +12,20 @@ from __future__ import annotations
 import argparse
 import sys
 
-# Commands that call Gemini. Kept explicit so quota consumption is visible in
-# the verb you typed. swing-cli.md Part 1.
-LLM_COMMANDS = {"ask", "batch"}
+# Commands that can call Gemini. Kept explicit so quota consumption is visible
+# in the verb you typed. swing-cli.md Part 1.
+LLM_COMMANDS = {"ask", "why", "batch", "daily", "placebo"}
 
 HELP_TEXT = """
-  /help              this text
-  /coverage          what data do I have
-  /tickers           list watchlist tickers
-  /health            per-source feed health
-  /quit              exit  (or Ctrl-D)
+  Ask why a stock moved, in plain English:
+    why is NVDA down?
+    what happened to Tesla yesterday?
+    why did MU jump on Aug 27?
 
-  <TICKER>           explain that ticker's most recent swing
-  anything else      natural-language question (uses Gemini)
+  /stocks            the stocks I cover
+  /health            is news collection working
+  /coverage          how much news is stored
+  /quit              exit  (or Ctrl-D)
 """
 
 
@@ -39,9 +40,9 @@ def build_parser() -> argparse.ArgumentParser:
 
     sub.add_parser("health", help="per-source feed health")
 
-    w = sub.add_parser("why", help="explain a swing")
+    w = sub.add_parser("why", help="why a stock moved (uses Gemini for unusual moves)")
     w.add_argument("ticker")
-    w.add_argument("--date", help="YYYY-MM-DD; defaults to most recent swing")
+    w.add_argument("--date", help="YYYY-MM-DD; defaults to the latest completed session")
 
     s = sub.add_parser("stats", help="aggregate swing stats")
     s.add_argument("ticker")
@@ -180,24 +181,27 @@ def dispatch(args: argparse.Namespace) -> int:
 def repl() -> int:
     import atexit
     import readline  # stdlib: arrow-key history and line editing, no dependency
+    import threading
     from pathlib import Path
 
     from swing import commands
+    from swing.common import logging as log
+    from swing.ingest.config import stocks
+    from swing.paths import DATA
 
+    log.setup(logfile=DATA / "swing.log", console=False)
     history = Path.home() / ".swing_history"
     try:
         readline.read_history_file(history)
     except (FileNotFoundError, OSError):
         pass
     atexit.register(lambda: readline.write_history_file(history))
+    # Load the embedding model while the user types, so the first answer is quick.
+    threading.Thread(target=_warm_up, daemon=True).start()
 
-    cov = commands.coverage_data()
-    tickers = set(cov["tickers"])
-    print(
-        f"  swing-agent · {len(tickers)} tickers · "
-        f"{cov['articles']:,} articles from {cov['articles_from']}"
-    )
-    print("  Type a question, or /help for commands. Ctrl-D to exit.")
+    print("  swing · ask why a stock went up or down")
+    print(f"  stocks: {' '.join(sorted(stocks()))}")
+    print("  e.g. why is NVDA down?   ·   /help   ·   Ctrl-D to exit")
 
     while True:
         try:
@@ -211,13 +215,25 @@ def repl() -> int:
             if line.startswith("/"):
                 if _slash(line, commands) == "quit":
                     return 0
-            elif line.upper() in tickers:
-                # The most common thing you will do, so make it one word.
-                commands.why(line.upper(), None)
             else:
+                # Every line is a question; a bare ticker ("NVDA") works too.
                 commands.ask(line)
-        except Exception as e:  # noqa: BLE001 - a bad query must not kill the REPL  # noqa: BLE001
+        except KeyboardInterrupt:
+            print("\n  (cancelled)")
+        except Exception as e:  # noqa: BLE001 - a bad question must not kill the REPL
             print(f"error: {e}", file=sys.stderr)
+
+
+def _warm_up() -> None:
+    import logging
+
+    try:
+        import swing.interface.explain  # noqa: F401 - quiets library output before loading
+        from swing.ingest.normalize import _embed_texts
+
+        _embed_texts(["warm up"])
+    except Exception:  # warming is an optimisation, never an error
+        logging.getLogger("cli").debug("embedding warm-up failed", exc_info=True)
 
 
 def _slash(line: str, commands) -> str | None:
@@ -229,7 +245,7 @@ def _slash(line: str, commands) -> str | None:
             commands.coverage()
         case "health":
             commands.health()
-        case "tickers":
+        case "stocks" | "tickers":
             print(", ".join(commands.coverage_data()["tickers"]))
         case "quit" | "exit" | "q":
             return "quit"

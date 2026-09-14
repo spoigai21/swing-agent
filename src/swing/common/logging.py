@@ -8,7 +8,10 @@ from pathlib import Path
 _CONFIGURED = False
 
 
-def setup(level: int = logging.INFO, logfile: Path | None = None) -> None:
+def setup(level: int = logging.INFO, logfile: Path | None = None,
+          console: bool = True) -> None:
+    """`console=False` sends everything to `logfile` only, so the interactive
+    prompt shows answers rather than ingest chatter."""
     global _CONFIGURED
     if _CONFIGURED:
         return
@@ -16,7 +19,7 @@ def setup(level: int = logging.INFO, logfile: Path | None = None) -> None:
         "%(asctime)s %(levelname)-7s %(name)-22s %(message)s",
         datefmt="%Y-%m-%dT%H:%M:%S%z",
     )
-    handlers: list[logging.Handler] = [logging.StreamHandler(sys.stdout)]
+    handlers: list[logging.Handler] = [logging.StreamHandler(sys.stdout)] if console else []
     if logfile:
         logfile.parent.mkdir(parents=True, exist_ok=True)
         handlers.append(logging.FileHandler(logfile))

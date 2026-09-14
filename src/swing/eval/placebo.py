@@ -152,23 +152,34 @@ def run(n: int = 30, seed: int = 0, persist: bool = True,
                 "note": f"all {len(done)} cases already scored on this version"}
 
     confabulated = 0
+    scored: list[PlaceboCase] = []
     for c in cases:
         donor = relabel_timing(cached_clusters(c.donor_swing_id), c.swing_id)
         out = attribute_swing(c.swing_id, run_kind="placebo", persist=persist,
                               cluster_override=donor,
                               verdict_reason_tag=f"placebo:{eval_hash()}")
+        if out.get("verdict_reason") == "llm_error":
+            # A failed call (usually the daily quota) is not an abstention.
+            # Counting it as one scored requests that never reached the model
+            # as perfect behaviour.
+            logger.warning("placebo stopped at swing %s: model call failed", c.swing_id)
+            break
         attr = out.get("attribution")
         c.verdict = attr.verdict if attr else "error"
         c.n_candidates = len(attr.candidates) if attr else 0
+        scored.append(c)
         if c.verdict != "unexplained":
             confabulated += 1
             logger.warning("CONFABULATION swing=%s donor=%s verdict=%s candidates=%s",
                            c.swing_id, c.donor_swing_id, c.verdict, c.n_candidates)
-    rate = confabulated / len(cases)
+    if not scored:
+        return {"n": 0, "confabulated": 0, "rate": None, "done_on_this_version": len(done),
+                "note": "model unavailable (daily quota?); nothing scored"}
+    rate = confabulated / len(scored)
     logger.info("placebo: %d cases this run, %d confabulated (%.1f%%)",
-                len(cases), confabulated, rate * 100)
-    return {"n": len(cases), "confabulated": confabulated, "rate": rate,
-            "cases": cases, "done_on_this_version": len(done) + len(cases),
+                len(scored), confabulated, rate * 100)
+    return {"n": len(scored), "confabulated": confabulated, "rate": rate,
+            "cases": scored, "done_on_this_version": len(done) + len(scored),
             "eligible_total": len(all_cases)}
 
 

@@ -7,29 +7,42 @@ can be identified.
 Specs: `agent-plan.md` (what and why) · `data-sources.md` (APIs) ·
 `CODEBASE-PLAN.md` (module layout, schema, build order).
 
-**Status: Step 0 complete — the news collector is running.**
-Everything else is unbuilt by design; news does not backfill, so the collector
-starts before the rest of the system exists.
+## Using it
+
+```bash
+swing                                   # opens the prompt
+> why is NVDA down?
+> what happened to Tesla yesterday?
+> why did MU jump on Aug 27?
+```
+
+One-shot forms: `swing ask "why is NVDA down?"` · `swing why NVDA --date 2026-08-27`.
+
+- Covers the 12 watchlist stocks: NVDA MRVL MU SNDK AVGO QCOM AAPL GOOGL NFLX TTWO TSLA SBUX.
+- Each question fetches fresh prices and news first. A normal day is answered in
+  a second or two with no model call; an unusual move takes ~20s and uses one
+  Gemini request (free tier: 20/day). Asking again reuses the stored answer.
+- When nothing published before the move explains it, it says so instead of guessing.
+- It refuses forecasts ("is NVDA a buy?").
+- Answers are only as good as the news it holds, so keep the collector running (below).
+
+Everything else (`annotate`, `placebo`, `metrics`, `daily`, ...) is evaluation
+and operations tooling.
 
 ---
 
 ## Runbook
 
-### The `swing` command
+### Installing the `swing` command
 
 Installed globally (editable, so code edits take effect immediately):
 
 ```bash
-uv tool install --editable . --python 3.12    # or: pipx install -e .
-swing coverage        # what data do I have          (works, <100ms)
-swing health          # per-source feed health       (works)
-swing collect         # one collection pass          (works)
-swing dbinit          # apply schema, idempotent     (works)
-swing                 # interactive REPL
+uv tool install --editable ".[data,ml,llm]" --python 3.12 --force
+swing health          # per-source feed health
+swing coverage        # what data do I have
+swing dbinit          # apply schema, idempotent
 ```
-
-`swing why / stats / compare / unexplained / ask / batch` exist but report the
-build step that unlocks them. **Only `ask` and `batch` ever call Gemini.**
 
 ### The collector
 
@@ -84,34 +97,26 @@ weeks is three weeks of unrecoverable data.
 ```bash
 docker compose up -d                  # Postgres 16 + pgvector on :5433
 docker compose ps
-.venv/bin/python scripts/bootstrap_db.py   # idempotent schema apply
+swing dbinit && .venv/bin/alembic upgrade head   # schema + migrations, idempotent
 docker exec -e PGPASSWORD=swing swing-db psql -U swing -d swing_agent
 ```
 
 ---
 
-## What exists
+## Layout
 
 ```
-pyproject.toml          entry point: swing = "swing.cli:main"
 src/swing/
-  cli.py                dispatcher + REPL
-  commands.py           one function per subcommand
-  paths.py              absolute path resolution, SWING_HOME override
-  common/               settings, timeutil (UTC discipline), http, logging
-  store/                schema, session, raw
-  ingest/               collector, edgar, news_rss, health, config
-config/                 watchlist.yaml (CIKs verified), sources.yaml
-scripts/                bootstrap_db.py, com.swingagent.collector.plist
+  cli.py, commands.py   the `swing` command and its subcommands
+  interface/explain.py  one question -> prices, news, split, reason   (what `swing` runs)
+  ingest/               collector, EDGAR, RSS, Finnhub, prices, normalize
+  analysis/             market/sector split, swing detection, onset, clustering, ranking
+  agent/                LangGraph attribution: Gemini call + code-level citation/abstention guards
+  eval/                 annotation, placebo test, metrics
+  store/                schema.sql, models, migrations
+config/                 watchlist.yaml, sources.yaml, thresholds.yaml, prompts/
 ```
 
-Package layout is `src/swing/` because a globally installed `swing` would
-otherwise put `common` and `agent` on the system as top-level import names.
-
-## Next: Step 1
-
-Full `schema.sql`, SQLAlchemy models, alembic baseline, `store/queries.py`.
-**Verify the Finnhub intraday candle endpoint first** (`CODEBASE-PLAN.md` §0.1 C1)
-— onset detection depends on it and the plan's claim that it is free-tier looks
-stale. Install the full `requirements.txt` at Step 2, not before; `torch` is a
-~2 GB download and must not delay the clock.
+Design and findings: `CODEBASE-PLAN.md`. Package layout is `src/swing/` so a
+globally installed `swing` does not put `common` or `agent` on the system as
+top-level import names.

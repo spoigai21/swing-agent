@@ -84,7 +84,13 @@ def _num(v) -> float | None:
     return None if v is None or pd.isna(v) else float(v)
 
 
-def backfill_daily(symbols: list[str] | None = None, years: int = 2) -> dict[str, int]:
+def refresh_daily(symbols: list[str], days: int = 10) -> dict[str, int]:
+    """Top up the last `days` of daily bars. A question does this before
+    answering, so an answer never depends on a batch job having run."""
+    return backfill_daily(symbols, years=days / 365.25)
+
+
+def backfill_daily(symbols: list[str] | None = None, years: float = 2) -> dict[str, int]:
     """Pull `years` of unadjusted daily OHLCV for every symbol."""
     import yfinance as yf
 

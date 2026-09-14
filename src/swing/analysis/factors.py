@@ -181,18 +181,24 @@ ON CONFLICT (ticker, d) DO UPDATE SET
 """
 
 
+def _write(e: Entity) -> int:
+    rows = [r for r in compute(e) if r.get("d")]
+    if rows:
+        with connect() as conn, conn.cursor() as cur:
+            cur.executemany(UPSERT, [{**{k: None for k in (
+                "ret", "alpha", "beta_mkt", "beta_sector", "r_squared",
+                "market_component", "sector_component", "residual",
+                "residual_vol_60", "residual_z", "volume_z", "idio_share")}, **r}
+                for r in rows])
+    logger.info("%s (%s): %d factor rows", e.ticker, e.entity_type, len(rows))
+    return len(rows)
+
+
+def rebuild(ticker: str) -> int:
+    """Recompute daily_factors for one entity. Its factor ETFs' bars must be current."""
+    return _write(next(e for e in entities() if e.ticker == ticker))
+
+
 def rebuild_all() -> dict[str, int]:
     """Recompute daily_factors for every entity, sectors first."""
-    out = {}
-    for e in entities():
-        rows = [r for r in compute(e) if r.get("d")]
-        if rows:
-            with connect() as conn, conn.cursor() as cur:
-                cur.executemany(UPSERT, [{**{k: None for k in (
-                    "ret", "alpha", "beta_mkt", "beta_sector", "r_squared",
-                    "market_component", "sector_component", "residual",
-                    "residual_vol_60", "residual_z", "volume_z", "idio_share")}, **r}
-                    for r in rows])
-        out[e.ticker] = len(rows)
-        logger.info("%s (%s): %d factor rows", e.ticker, e.entity_type, len(rows))
-    return out
+    return {e.ticker: _write(e) for e in entities()}

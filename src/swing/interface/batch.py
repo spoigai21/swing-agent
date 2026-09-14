@@ -125,6 +125,11 @@ def _attribute(limit: int) -> dict[str, int]:
                            r["ticker"], r["d"], str(exc)[:90])
             counts["stopped"] = counts.get("stopped", 0) + 1
             break
+        if out.get("verdict_reason") == "llm_error":
+            logger.warning("attribution stopped at %s %s: model call failed",
+                           r["ticker"], r["d"])
+            counts["stopped"] = counts.get("stopped", 0) + 1
+            break
         attr = out.get("attribution")
         v = attr.verdict if attr else "error"
         counts[v] = counts.get(v, 0) + 1

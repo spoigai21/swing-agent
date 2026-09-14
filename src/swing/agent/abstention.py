@@ -13,6 +13,10 @@ from __future__ import annotations
 from swing.agent.schema import Attribution, Candidate
 from swing.ingest.config import thresholds
 
+# Opening of every unexplained note; the answer screen strips it so the reply
+# does not repeat itself.
+NOTE_BASE = "No pre-move catalyst identified from credible sources. "
+
 
 def _is_valid(c: Candidate) -> bool:
     return (
@@ -57,7 +61,7 @@ def unexplained_note(volume_z: float | None) -> str:
     identical output; with it, the first is a real answer and the second is a
     prompt to add sources.
     """
-    base = "No pre-move catalyst identified from credible sources. "
+    base = NOTE_BASE
     cfg = thresholds()["swings"]
     if volume_z is None:
         return base + "Volume context unavailable."

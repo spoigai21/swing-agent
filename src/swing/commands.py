@@ -288,64 +288,20 @@ def _needs(step: str, what: str):
 
 
 def why(ticker: str, date: str | None = None) -> int:
-    """Explain one swing, running the agent if no attribution is stored."""
+    """Why `ticker` moved on `date` (default: the latest completed session)."""
     from datetime import date as _date
 
-    from swing.agent.graph import attribute_swing
-    from swing.analysis.decompose import load as load_decomp
-    from swing.store.session import connect
+    from swing.common import logging as log
+    from swing.ingest.config import stocks
+    from swing.interface.explain import explain
+    from swing.paths import DATA
 
+    log.setup(logfile=DATA / "swing.log", console=False)
     t = ticker.upper()
-    with connect() as conn:
-        if date:
-            sw = conn.execute(
-                "SELECT * FROM swings WHERE ticker=%s AND d=%s AND kind='daily'",
-                (t, _date.fromisoformat(date))).fetchone()
-        else:
-            sw = conn.execute(
-                "SELECT * FROM swings WHERE ticker=%s AND superseded_by IS NULL "
-                "ORDER BY d DESC LIMIT 1", (t,)).fetchone()
-    if not sw:
-        print(f"no swing found for {t}" + (f" on {date}" if date else ""))
+    if t not in stocks():
+        print(f"I only cover these stocks for now: {', '.join(sorted(stocks()))}.")
         return 1
-
-    d = load_decomp(t, sw["d"])
-    print(d.sentence() if d else f"{t} {sw['d']}")
-    print(f"  swing_type={sw['swing_type']}  onset={sw['onset_ts']}  "
-          f"volume_z={float(sw['volume_z'] or 0):+.1f}  earnings_mode={sw['earnings_mode']}")
-
-    with connect() as conn:
-        stored = conn.execute(
-            "SELECT payload, verdict, unexplained_note, model_id, prompt_version, created_at "
-            "FROM attributions WHERE swing_id=%s AND run_kind='production' "
-            "ORDER BY created_at DESC LIMIT 1", (sw["id"],)).fetchone()
-    if stored:
-        payload, verdict = stored["payload"], stored["verdict"]
-        note, meta = stored["unexplained_note"], f"{stored['model_id']} / {stored['prompt_version']}"
-    else:
-        print("\n  (no stored attribution — running the agent)")
-        out = attribute_swing(sw["id"])
-        attr = out.get("attribution")
-        if attr is None:
-            print("  attribution failed")
-            return 1
-        payload = attr.model_dump()
-        verdict, note, meta = attr.verdict, attr.unexplained_note, "fresh"
-
-    print(f"\n  VERDICT: {verdict}   [{meta}]")
-    for c in (payload.get("candidates") or []):
-        print(f"\n  [{c['confidence']}] {c['event_type']}: {c['catalyst']}")
-        print(f"     direction_consistent={c['direction_consistent']} "
-              f"magnitude_plausible={c['magnitude_plausible']}")
-        for e in c.get("evidence") or []:
-            print(f"     - cluster {e['cluster_id']} ({e['timing']}, tier {e['source_tier']}, "
-                  f"{e['distinct_sources']} src) {e['headline'][:56]}")
-    if note:
-        print(f"\n  {note}")
-    if payload.get("source_disagreement"):
-        print(f"\n  disagreement: {payload['source_disagreement']}")
-    if payload.get("reactive_coverage_note"):
-        print(f"  reactive: {payload['reactive_coverage_note']}")
+    print(explain(t, _date.fromisoformat(date) if date else None))
     return 0
 
 
@@ -431,15 +387,17 @@ def unexplained(ticker: str | None = None, days: int = 30) -> int:
 
 
 def ask(question: str) -> int:
-    """Natural language over stored attributions.
+    """One question: why a stock moved, or a question about the stored history.
 
-    The forecast guardrail runs FIRST, before any model call, and most queries
-    are answered by SQL and never reach the model at all.
+    The forecast guardrail runs first, before anything is fetched or any model
+    is called.
     """
-    from swing.interface.query import answer
+    from swing.common import logging as log
+    from swing.interface.explain import respond
+    from swing.paths import DATA
 
-    a = answer(question)
-    print(a.text)
+    log.setup(logfile=DATA / "swing.log", console=False)
+    print(respond(question))
     return 0
 
 

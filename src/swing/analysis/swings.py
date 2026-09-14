@@ -74,6 +74,41 @@ def _earnings_days(ticker: str) -> set[date]:
     return days
 
 
+def _daily_swing(entity: Entity, row: dict, onset, earnings_mode: bool) -> Swing:
+    return Swing(
+        ticker=entity.ticker, d=row["d"], kind="daily", drift_window=None,
+        residual=float(row["residual"]), residual_z=float(row["residual_z"]),
+        total_return=float(row["ret"]),
+        market_component=float(row["market_component"]),
+        sector_component=float(row["sector_component"]),
+        volume_z=float(row["volume_z"]) if row["volume_z"] is not None else None,
+        swing_type=onset.swing_type, onset_ts=onset.ts,
+        onset_source=onset.source, earnings_mode=earnings_mode,
+        entity_type=entity.entity_type,
+    )
+
+
+def detect_day(entity: Entity, d: date) -> int | None:
+    """Detect, time and store the daily swing for ONE day. Returns its id, or
+    None when the day is not a swing.
+
+    A question needs one day, not a history scan. Intraday bars for the stock
+    and its factor ETFs are captured first, so the onset is exact rather than
+    the 48h fallback.
+    """
+    with connect() as conn:
+        row = conn.execute(
+            "SELECT * FROM daily_factors WHERE ticker=%s AND d=%s AND status='ok'",
+            (entity.ticker, d)).fetchone()
+    if not row or abs(float(row["residual_z"])) < float(thresholds()["swings"]["z_threshold"]):
+        return None
+    onset = _onset_for(entity, d, row, capture=True)
+    earnings = entity.entity_type == "stock" and d in _earnings_days(entity.ticker)
+    with connect() as conn:
+        return conn.execute(UPSERT_DAILY + "RETURNING id",
+                            asdict(_daily_swing(entity, row, onset, earnings))).fetchone()["id"]
+
+
 def detect(entity: Entity, capture_intraday: bool = True) -> list[Swing]:
     cfg = thresholds()["swings"]
     z_thr = float(cfg["z_threshold"])
@@ -87,24 +122,12 @@ def detect(entity: Entity, capture_intraday: bool = True) -> list[Swing]:
     out: list[Swing] = []
     daily_days: set[date] = set()
 
-    for i, r in enumerate(rows):
-        z = float(r["residual_z"])
-        if abs(z) < z_thr:
+    for r in rows:
+        if abs(float(r["residual_z"])) < z_thr:
             continue
-        d = r["d"]
-        daily_days.add(d)
-        onset = _onset_for(entity, d, r, capture_intraday)
-        out.append(Swing(
-            ticker=entity.ticker, d=d, kind="daily", drift_window=None,
-            residual=float(r["residual"]), residual_z=z,
-            total_return=float(r["ret"]),
-            market_component=float(r["market_component"]),
-            sector_component=float(r["sector_component"]),
-            volume_z=float(r["volume_z"]) if r["volume_z"] is not None else None,
-            swing_type=onset.swing_type, onset_ts=onset.ts,
-            onset_source=onset.source, earnings_mode=d in earnings,
-            entity_type=entity.entity_type,
-        ))
+        daily_days.add(r["d"])
+        onset = _onset_for(entity, r["d"], r, capture_intraday)
+        out.append(_daily_swing(entity, r, onset, r["d"] in earnings))
 
     # Multi-day drift: a stock bleeding 1.3 sigma a day for four days never
     # fires a single-day threshold, and that is often the better story.

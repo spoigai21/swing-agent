@@ -64,29 +64,31 @@ def _to_raw(item: dict, ticker: str, **extra) -> RawArticle | None:
     )
 
 
+def fetch(ticker: str, start: date, end: date) -> int:
+    """Company news for one ticker over [start, end]. Returns articles newly stored."""
+    r = _get("/company-news", {"symbol": ticker,
+                               "from": start.isoformat(), "to": end.isoformat()})
+    if r.status_code != 200:
+        logger.warning("finnhub news %s -> HTTP %s", ticker, r.status_code)
+        return 0
+    items = r.json()
+    n = insert_many([a for item in items if (a := _to_raw(item, ticker))])
+    bump_health(SOURCE, n)
+    if n:
+        logger.info("finnhub %s: %d new / %d returned", ticker, n, len(items))
+    return n
+
+
 def poll(days: int = 7) -> int:
     """Company news for every watchlist ticker over the last `days`."""
     end = datetime.now(UTC).date()
     start = end - timedelta(days=days)
     total = 0
-
     for ticker in stocks():
         try:
-            r = _get("/company-news", {"symbol": ticker,
-                                       "from": start.isoformat(), "to": end.isoformat()})
+            total += fetch(ticker, start, end)
         except Exception:
             logger.exception("finnhub news failed for %s", ticker)
-            continue
-        if r.status_code != 200:
-            logger.warning("finnhub news %s -> HTTP %s", ticker, r.status_code)
-            continue
-
-        batch = [a for item in r.json() if (a := _to_raw(item, ticker))]
-        n = insert_many(batch)
-        bump_health(SOURCE, n)
-        total += n
-        if n:
-            logger.info("finnhub %s: %d new / %d returned", ticker, n, len(r.json()))
     return total
 
 
