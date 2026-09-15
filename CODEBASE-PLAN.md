@@ -1472,5 +1472,42 @@ so `w_novelty` stays 0 and no MLP is trained.
 key. Both stay unbuilt, which the gate allows ("any that doesn't, drop").
 
 **Gate 4 is quota-bound, not code-bound:** 200 cases at ≤20 requests/day on the
-free tier. The nightly job (12/night) reaches 200 in ~17 days; a paid key would
-finish it in minutes.
+free tier. The nightly job (now 17/night, stopping at 200) reaches it in ~12
+days; a paid key would finish it in minutes. The placebo pool was capped at 188
+by requiring the test swing's own clusters (they are replaced anyway); only
+donors need evidence now, giving 287 cases.
+
+## 16.8 Gate 2 on held-out moves: FAIL, 9/22 (0.41)
+
+32 moves never used for tuning were researched from the web only
+(`answer_key/causes_heldout_2026-09-14.json`) and matched against the final
+system (wire copy, related companies, analyst actions, filing press releases):
+
+| Set | Recall@10 | High/medium-confidence causes only |
+|---|---|---|
+| Dev (the 33 the changes were made against) | 22/33 (0.67) | 21/29 (0.72) |
+| **Held-out (never tuned on)** | **9/22 (0.41)** | **9/18 (0.50)** |
+| Gate 2 target | 0.80 | |
+
+As warned in §16.3, the dev number was optimistic. The held-out profile is the
+honest one:
+
+- **Found:** scheduled company events with a filing or press release —
+  earnings 8-Ks (TTWO, AAPL, MRVL, GOOGL), an 8-K'd chip deal (AVGO/Google), a
+  related company's filing (AMD's OpenAI deal moving NVDA), a CNBC bid story (NFLX).
+- **Missed (13, none ranked low):** media scoops (WSJ on Nvidia's OpenAI
+  investment), thematic moves (Gemini 3 excitement, broad AI-chip rallies, memory
+  pricing), policy/geopolitics (Musk joining a China trip), speculation (Forbes on
+  GTA), and a small acquisition reported after the move began.
+- **Timing, not absence, in three:** the UBS (MU), RBC (SBUX) and XConn (MRVL)
+  items are stored but stamped after the onset — for the two analyst notes most
+  likely because the news vendor published a pre-market note after the open.
+
+**What would move it**, in order of expected effect: a feed of analyst actions
+with their true release times (Benzinga Pro / paid); licensed scoop sources (WSJ,
+Bloomberg, The Information full feeds); social posts from executives. All are
+paid or unavailable to a $0 stack. Ranking and dedup changes cannot help: every
+hit already ranks in the top 10 and no miss was ranked low.
+
+`swing metrics` now pools dev and held-out labels; report the held-out figure
+when judging the gate.
