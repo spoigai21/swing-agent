@@ -258,6 +258,12 @@ def _refresh_news(ticker: str, d: date) -> None:
         except Exception:
             logger.warning("refreshing %s for %s failed", name, ticker, exc_info=True)
     normalize_all()
+    try:
+        from swing.ingest.edgar_text import enrich_pending
+
+        enrich_pending(limit=20)            # new filings: read their press releases
+    except Exception:
+        logger.warning("filing text refresh failed", exc_info=True)
 
 
 def _reusable_attribution(swing_id: int) -> dict | None:

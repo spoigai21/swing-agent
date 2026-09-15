@@ -43,12 +43,18 @@ class Job:
 
 
 def build_jobs() -> list[Job]:
+    from swing.ingest import edgar_text
+
     jobs: list[Job] = [
         Job(
             name="sec-edgar",
             interval=float(edgar_config().get("poll_seconds", 600)),
             fn=edgar.poll,
-        )
+        ),
+        # Read each new event filing's press release so evidence says what
+        # happened, not just "8-K — Item 2.02".
+        Job(name="sec-edgar-text", interval=600.0,
+            fn=lambda: edgar_text.enrich_pending(limit=40)),
     ]
     for spec in feeds():
         jobs.append(

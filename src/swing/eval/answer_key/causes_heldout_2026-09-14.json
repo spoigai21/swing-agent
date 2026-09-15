@@ -1,0 +1,522 @@
+[
+  {
+    "id": 357,
+    "ticker": "AAPL",
+    "date": "2026-05-01",
+    "catalyst": "Apple reported fiscal Q2 2026 results after the Apr 30 close that beat estimates (EPS $2.01 vs ~$1.96, revenue $111.2B), with strong iPhone 17 demand, upbeat June-quarter commentary and a new $100B buyback.",
+    "event_type": "earnings",
+    "catalyst_public_at_et": "2026-04-30 16:30",
+    "before_move": "yes",
+    "scope": "company",
+    "confidence": "high",
+    "sources": [
+      "https://finance.yahoo.com/news/apple-tops-q2-earnings-estimates-on-strong-iphone-china-sales-174442565.html",
+      "https://finance.yahoo.com/markets/stocks/articles/stock-market-today-may-1-171207123.html",
+      "https://www.investing.com/news/transcripts/earnings-call-transcript-apple-q2-2026-sees-earnings-beat-stock-rises-93CH-4651679"
+    ],
+    "note": "Release time approximate (standard after-close release)."
+  },
+  {
+    "id": 358,
+    "ticker": "AAPL",
+    "date": "2026-06-02",
+    "catalyst": null,
+    "event_type": null,
+    "catalyst_public_at_et": null,
+    "before_move": "unclear",
+    "scope": "company",
+    "confidence": "low",
+    "sources": [
+      "https://macdailynews.com/2026/06/02/apple-shares-hit-new-all-time-closing-and-intraday-highs/",
+      "https://www.tikr.com/blog/apple-rose-14-in-30-days-heres-how-much-the-stock-could-rise-in-2026"
+    ],
+    "note": "AAPL hit a record close ($315.20, +2.9%). Coverage cites only general pre-WWDC AI/Siri optimism and price-target increases (BofA $380, Melius $385, Wedbush $400), none tied to June 2. No same-day catalyst found."
+  },
+  {
+    "id": 359,
+    "ticker": "AAPL",
+    "date": "2026-06-09",
+    "catalyst": "Selling continued after Apple's June 8 WWDC keynote, where Siri AI (built on Google Gemini) launched only in beta with no firm release date and no rollout in the EU or mainland China.",
+    "event_type": "product",
+    "catalyst_public_at_et": "2026-06-08 13:00",
+    "before_move": "yes",
+    "scope": "company",
+    "confidence": "medium",
+    "sources": [
+      "https://www.macrumors.com/2026/06/11/aapl-stock-slides-following-wwdc/",
+      "https://www.gurufocus.com/news/8908076/apples-stock-aapl-declines-over-3-after-wwdc-2026-announcement",
+      "https://www.indmoney.com/blog/us-stocks/why-did-apple-stock-fall-after-wwdc-2026-siri-ai-aapl-stock-valuation"
+    ],
+    "note": "Keynote was June 8 (time assumed 10am PT); AAPL fell 1.89% that day, and June 9 was a second down day. No new June 9 news found beyond WWDC reaction (e.g., Gene Munster: 'no timeline on Siri')."
+  },
+  {
+    "id": 293,
+    "ticker": "AVGO",
+    "date": "2025-11-24",
+    "catalyst": "Broadcom jumped about 11% as praise for Google's Gemini 3, which was trained on Google TPUs that Broadcom co-designs, boosted the outlook for its custom AI chips (e.g., Mizuho note); Alphabet rallied alongside.",
+    "event_type": "product",
+    "catalyst_public_at_et": "2025-11-18 11:00",
+    "before_move": "yes",
+    "scope": "related_company",
+    "confidence": "medium",
+    "sources": [
+      "https://www.cnbc.com/2025/11/24/broadcom-is-joining-alphabet-in-the-ai-rally-why-investors-are-jumping-in.html",
+      "https://sherwood.news/markets/broadcom-soars-as-rave-reviews-for-gemini-3-boost-appeal-of-its-custom-chips/"
+    ],
+    "note": "Gemini 3 launched Nov 18 (time approximate); the Nov 24 move reflects building enthusiasm (reviews such as Marc Benioff's) rather than a single timestamped event."
+  },
+  {
+    "id": 298,
+    "ticker": "AVGO",
+    "date": "2026-04-07",
+    "catalyst": "Broadcom announced it will keep designing Google's custom AI processors for the next five years and expanded a collaboration with Anthropic and Google to supply compute starting in 2027.",
+    "event_type": "product",
+    "catalyst_public_at_et": "2026-04-07 07:00",
+    "before_move": "yes",
+    "scope": "company",
+    "confidence": "medium",
+    "sources": [
+      "https://www.fool.com/investing/2026/04/07/why-broadcom-stock-jumped-higher-this-morning/",
+      "https://www.cryptopolitan.com/broadcom-rises-after-securing-ai-chip-deals/"
+    ],
+    "note": "Announcement came before the Apr 7 open. Exact time not verified (could have been the evening of Apr 6)."
+  },
+  {
+    "id": 299,
+    "ticker": "AVGO",
+    "date": "2026-05-06",
+    "catalyst": null,
+    "event_type": null,
+    "catalyst_public_at_et": null,
+    "before_move": "unclear",
+    "scope": "company",
+    "confidence": "low",
+    "sources": [
+      "https://www.fool.com/coverage/stock-market-today/2026/05/06/stock-market-today-may-6-markets-break-new-ground-on-hopes-for-u-s-iran-peace-deal/",
+      "https://www.thestreet.com/latest-news/stock-market-today-may-6-2026-updates"
+    ],
+    "note": "Market rallied strongly (Nasdaq +2%, records) on a report that the US and Iran were nearing a deal, plus AI chip earnings; AVGO slipped, a clear underperformance. No Broadcom-specific news found."
+  },
+  {
+    "id": 372,
+    "ticker": "GOOGL",
+    "date": "2025-10-30",
+    "catalyst": "Alphabet reported Q3 2025 results after the Oct 29 close that beat across the board (first $100B+ revenue quarter, EPS $3.10 adjusted, Cloud +34%, $155B cloud backlog) and raised 2025 capex guidance to $91-93B.",
+    "event_type": "earnings",
+    "catalyst_public_at_et": "2025-10-29 16:05",
+    "before_move": "yes",
+    "scope": "company",
+    "confidence": "high",
+    "sources": [
+      "https://www.cnbc.com/2025/10/29/alphabet-google-q3-earnings.html",
+      "https://www.cnbc.com/2025/10/30/alphabet-goog-stock-earnings-ai-spend.html"
+    ],
+    "note": "Release time approximate."
+  },
+  {
+    "id": 374,
+    "ticker": "GOOGL",
+    "date": "2025-11-24",
+    "catalyst": "Alphabet rose above $300 to a record, passing Microsoft in market value, on continued enthusiasm for its Gemini 3 model (launched Nov 18) and a Google Cloud sovereign-cloud contract with NATO announced Nov 24.",
+    "event_type": "product",
+    "catalyst_public_at_et": "2025-11-24 08:00",
+    "before_move": "unclear",
+    "scope": "company",
+    "confidence": "medium",
+    "sources": [
+      "https://www.morningbrew.com/stories/2025/11/24/google-is-putting-the-alpha-in-alphabet",
+      "https://www.googlecloudpresscorner.com/2025-11-24-NATO-and-Google-Cloud-Sign-Multi-Million-Dollar-Deal-for-AI-Enabled-Sovereign-Cloud",
+      "https://sherwood.news/markets/broadcom-soars-as-rave-reviews-for-gemini-3-boost-appeal-of-its-custom-chips/"
+    ],
+    "note": "The NATO press release is dated Nov 24 with no time given (08:00 is a guess), so it may not have preceded the gap. The main driver was cumulative Gemini 3 sentiment built over the weekend, not one timestamped overnight event."
+  },
+  {
+    "id": 376,
+    "ticker": "GOOGL",
+    "date": "2026-03-24",
+    "catalyst": "Alphabet fell as escalating US-Iran tensions pushed Brent crude toward $100, raising worries about AI/data-center energy costs; reports also cited an EU Digital Markets Act complaint from 18 industry groups and AI-disruption fears after an Anthropic Claude computer-use announcement.",
+    "event_type": "macro",
+    "catalyst_public_at_et": null,
+    "before_move": "unclear",
+    "scope": "market",
+    "confidence": "low",
+    "sources": [
+      "https://finance.yahoo.com/markets/stocks/articles/why-alphabet-googl-shares-falling-022922289.html"
+    ],
+    "note": "Only aggregator (StockStory-style) attribution found, listing several loosely timed factors. Google's TurboQuant memory-compression research was also unveiled that Tuesday (it hit memory stocks, not clearly GOOGL). Treat the cause as uncertain."
+  },
+  {
+    "id": 246,
+    "ticker": "MRVL",
+    "date": "2025-12-03",
+    "catalyst": "Marvell reported fiscal Q3 results after the Dec 2 close that beat estimates (adj. EPS $0.76, revenue $2.07B, +37%), gave a bullish outlook, and announced it would acquire Celestial AI for $3.25B upfront (up to $5.5B).",
+    "event_type": "earnings",
+    "catalyst_public_at_et": "2025-12-02 16:05",
+    "before_move": "yes",
+    "scope": "company",
+    "confidence": "high",
+    "sources": [
+      "https://www.cnbc.com/2025/12/02/mrvl-earnings-q3-2026-acquires-celestial-ai.html",
+      "https://finance.yahoo.com/news/marvell-buy-chip-startup-celestial-210837707.html"
+    ],
+    "note": "Release time approximate."
+  },
+  {
+    "id": 248,
+    "ticker": "MRVL",
+    "date": "2026-01-06",
+    "catalyst": "Marvell announced a ~$540M cash-and-stock deal to buy XConn Technologies (PCIe/CXL switching); shares fell about 3.5%, and Raymond James said the deal suggests Marvell's portfolio was behind.",
+    "event_type": "m_and_a",
+    "catalyst_public_at_et": "2026-01-06 09:00",
+    "before_move": "yes",
+    "scope": "company",
+    "confidence": "medium",
+    "sources": [
+      "https://www.investing.com/news/stock-market-news/marvell-stock-falls-after-announcing-xconn-technologies-acquisition-93CH-4433319",
+      "https://finance.yahoo.com/news/marvell-acquire-xconn-technologies-expanding-140000224.html",
+      "https://investor.marvell.com/news-events/press-releases/detail/1004/marvell-to-acquire-xconn-technologies-expanding-leadership-in-ai-data-center-connectivity"
+    ],
+    "note": "Press release carried on Yahoo at 14:00 UTC (09:00 ET), just before the open. CES was also starting that week."
+  },
+  {
+    "id": 265,
+    "ticker": "MU",
+    "date": "2025-11-05",
+    "catalyst": "Memory and AI chip stocks rebounded after the Nov 4 AI-valuation selloff, helped by strong DRAM pricing momentum (Citi expecting ~25% Q4 DRAM price jump) and reported HBM pricing strength at SK Hynix/Samsung.",
+    "event_type": "other",
+    "catalyst_public_at_et": null,
+    "before_move": "unclear",
+    "scope": "sector",
+    "confidence": "low",
+    "sources": [
+      "https://www.tradingview.com/news/invezz:552fbaab5094b:0-micron-stock-climbs-nearly-8-on-wednesday-what-mu-rally-means-for-investors/",
+      "https://www.cnbc.com/2025/11/04/stock-market-today-live-updates.html"
+    ],
+    "note": "The only specific attribution comes from a low-tier outlet (Invezz). CNBC describes a broad Nov 5 rebound in AMD/AI names plus the Supreme Court tariff hearing (held during market hours, so it cannot explain the gap). No clearly timed overnight Micron catalyst verified."
+  },
+  {
+    "id": 272,
+    "ticker": "MU",
+    "date": "2026-03-23",
+    "catalyst": null,
+    "event_type": null,
+    "catalyst_public_at_et": null,
+    "before_move": "unclear",
+    "scope": "company",
+    "confidence": "low",
+    "sources": [
+      "https://www.investing.com/news/company-news/why-is-micron-technology-inc-down-today-93CH-4575693",
+      "https://finance.yahoo.com/markets/stocks/articles/stock-market-news-mar-23-135200663.html"
+    ],
+    "note": "MU fell while the market rallied (Dow +631 on Trump halting strikes on Iranian energy). Investing.com's 'why down today' piece cites only ongoing post-earnings concerns: capex above $25B from the Mar 18 report, a Summit Insights downgrade that appears to be from Mar 19, and Samsung HBM competition. Its market figures look wrong for the date. No new same-day catalyst found. TurboQuant came a day later (Mar 24)."
+  },
+  {
+    "id": 276,
+    "ticker": "MU",
+    "date": "2026-05-26",
+    "catalyst": "UBS analyst Timothy Arcuri tripled his Micron price target to $1,625 from $535, arguing long-term supply contracts could double the stock; Micron topped $1 trillion in market value.",
+    "event_type": "analyst_action",
+    "catalyst_public_at_et": "2026-05-26 07:00",
+    "before_move": "yes",
+    "scope": "company",
+    "confidence": "high",
+    "sources": [
+      "https://www.bloomberg.com/news/articles/2026-05-26/micron-shares-rally-ubs-projects-1-8-trillion-market-value",
+      "https://www.cnbc.com/2026/05/26/micron-stock-trillion-market-cap.html",
+      "https://www.fool.com/coverage/stock-market-today/2026/05/26/stock-market-today-may-26-micron-surges-after-ubs-lifts-price-target-on-ai-optimism/"
+    ],
+    "note": "UBS note time approximate (appears pre-market on the Tuesday after Memorial Day). Trump also praised Micron at a rally on Friday May 22."
+  },
+  {
+    "id": 396,
+    "ticker": "NFLX",
+    "date": "2026-02-25",
+    "catalyst": "Paramount Skydance raised its bid for Warner Bros. Discovery to $31/share and WBD said it was reviewing the revised offer, raising odds Netflix would walk away from its WBD deal (and collect a $2.8B breakup fee), which investors welcomed.",
+    "event_type": "m_and_a",
+    "catalyst_public_at_et": "2026-02-24 08:00",
+    "before_move": "yes",
+    "scope": "company",
+    "confidence": "medium",
+    "sources": [
+      "https://finance.yahoo.com/news/warner-bros-weighing-revised-bid-132442141.html",
+      "https://www.fool.com/coverage/stock-market-today/2026/02/25/stock-market-today-feb-25-netflix-jumps-after-warner-bros-bid-fuels-investor-optimism/",
+      "https://variety.com/2026/tv/news/netflix-shares-rise-warner-deliberates-next-steps-1236672674/"
+    ],
+    "note": "The Reuters story on the $31 bid ran early Feb 24 (time approximate), so NFLX's big move came the following session as WBD deliberated. Netflix formally dropped out Feb 26-27 (a later, separate rally)."
+  },
+  {
+    "id": 400,
+    "ticker": "NFLX",
+    "date": "2026-07-02",
+    "catalyst": null,
+    "event_type": null,
+    "catalyst_public_at_et": null,
+    "before_move": "unclear",
+    "scope": "company",
+    "confidence": "low",
+    "sources": [
+      "https://ts2.tech/en/netflix-nasdaqnflx-stocks-holiday-bounce-gives-investors-clear-july-watch/",
+      "https://www.investing.com/news/stock-market-news/netflix-gains-over-3-as-report-refutes-nbcuniversal-acquisition-speculation-4771361"
+    ],
+    "note": "NFLX +4.66% on Jul 2 while the Nasdaq-100 fell over 2%. The previous day's +3.8% followed a Jun 30 WSJ report playing down Netflix-NBCUniversal acquisition talk. No new Jul 2 news found; coverage describes a technical rebound from near 52-week lows."
+  },
+  {
+    "id": 402,
+    "ticker": "NFLX",
+    "date": "2026-07-23",
+    "catalyst": null,
+    "event_type": null,
+    "catalyst_public_at_et": null,
+    "before_move": "unclear",
+    "scope": "company",
+    "confidence": "low",
+    "sources": [
+      "https://www.fool.com/investing/2026/07/23/whats-going-on-with-netflix-stock/"
+    ],
+    "note": "No Netflix-specific news found. Stock was near 52-week lows after Jul 16 Q2 earnings (Baird cut its target Jul 22). Alphabet and Tesla fell sharply that day after earnings."
+  },
+  {
+    "id": 216,
+    "ticker": "NVDA",
+    "date": "2025-10-06",
+    "catalyst": "OpenAI and AMD announced a deal for OpenAI to deploy up to 6 GW of AMD GPUs, with a warrant for up to 160M AMD shares (~10% stake); AMD jumped ~24% and Nvidia slipped ~1% on OpenAI diversifying suppliers.",
+    "event_type": "product",
+    "catalyst_public_at_et": "2025-10-06 07:00",
+    "before_move": "yes",
+    "scope": "related_company",
+    "confidence": "high",
+    "sources": [
+      "https://www.cnbc.com/2025/10/06/openai-amd-chip-deal-ai.html",
+      "https://www.cnbc.com/2025/10/08/nvidia-huang-amd-open-ai.html"
+    ],
+    "note": "Announced pre-market Oct 6; exact time approximate. Arguably event_type m_and_a (equity warrant) or partnership."
+  },
+  {
+    "id": 220,
+    "ticker": "NVDA",
+    "date": "2026-02-02",
+    "catalyst": "WSJ reported late Friday Jan 30 that Nvidia's plan to invest up to $100B in OpenAI had stalled amid internal doubts; over the weekend Jensen Huang said Nvidia would invest in OpenAI's round but at nothing like $100B.",
+    "event_type": "other",
+    "catalyst_public_at_et": "2026-01-30 19:00",
+    "before_move": "yes",
+    "scope": "company",
+    "confidence": "high",
+    "sources": [
+      "https://www.cnbc.com/2026/02/02/nvidia-stock-price-openai-funding.html",
+      "https://www.investing.com/news/stock-market-news/nvidias-plan-to-invest-up-to-100-billion-in-openai-has-stalled-wsj-reports-4477535",
+      "https://techcrunch.com/2026/01/31/nvidia-ceo-pushes-back-against-report-that-his-companys-100b-openai-investment-has-stalled"
+    ],
+    "note": "WSJ publication time approximate ('late Friday'). Reports that OpenAI was unhappy with some Nvidia chips also circulated around this time (timing not verified)."
+  },
+  {
+    "id": 226,
+    "ticker": "NVDA",
+    "date": "2026-04-27",
+    "catalyst": "Nvidia rose 4% to a record ($5.26T market cap) in a broad AI chip rally, driven by rising AI capex expectations ahead of the next week's hyperscaler earnings and extending the rally sparked by Intel's blowout results; no Nvidia-specific news identified.",
+    "event_type": "other",
+    "catalyst_public_at_et": null,
+    "before_move": "unclear",
+    "scope": "sector",
+    "confidence": "low",
+    "sources": [
+      "https://www.forbes.com/sites/antoniopequenoiv/2026/04/27/nvidia-sets-new-record-with-nearly-53-trillion-value-after-ai-darling-surges-4/",
+      "https://www.cnbc.com/2026/04/24/nvidia-stock-closes-at-record-pushing-market-cap-past-5-trillion.html",
+      "https://www.tipranks.com/news/nvidia-stock-nvda-hits-new-record-high-as-ai-momentum-drives-another-rally"
+    ],
+    "note": "Intel's results (Apr 23 evening) mainly moved chips on Apr 24. Forbes also mentioned the same-day Ming-Chi Kuo report on an OpenAI/Qualcomm smartphone chip, but its link to NVDA is weak. Treat as sentiment/sector move."
+  },
+  {
+    "id": 325,
+    "ticker": "QCOM",
+    "date": "2026-05-05",
+    "catalyst": null,
+    "event_type": null,
+    "catalyst_public_at_et": null,
+    "before_move": "unclear",
+    "scope": "company",
+    "confidence": "low",
+    "sources": [
+      "https://www.investing.com/news/stock-market-news/why-is-qualcomm-stock-surging-today-93CH-4660428",
+      "https://www.tradingkey.com/news/market-movers/261857979-market-movers-qcom-20260505",
+      "https://www.fxleaders.com/news/2026/05/06/qualcomm-qcom-stock-analysis-may-6-2026-186-surge-on-trade-truce-and-ai-wins-is-200-next/"
+    ],
+    "note": "Same-day write-ups cite stale items: Q2 earnings (released Apr 29 after close), the Apr 27 Kuo report on an OpenAI smartphone chip, and the hyperscaler data-center win. One low-quality source cites a 'US-China tariff pause' (possibly confused with 2025) and an Argus target raise. Macro Iran-truce optimism lifted chips around this time. No verified new May 5 catalyst."
+  },
+  {
+    "id": 329,
+    "ticker": "QCOM",
+    "date": "2026-05-12",
+    "catalyst": "A hotter-than-expected CPI report and rising oil on fears the US-Iran ceasefire could break down set off a chip-stock selloff that hit Qualcomm hardest after its 60%+ multi-week run, amid commentary calling it the rally's 'problem child'.",
+    "event_type": "macro",
+    "catalyst_public_at_et": "2026-05-12 08:30",
+    "before_move": "yes",
+    "scope": "sector",
+    "confidence": "medium",
+    "sources": [
+      "https://www.cnbc.com/2026/05/12/qualcomm-chip-stocks-record-ai.html",
+      "https://www.tipranks.com/news/why-qualcomm-qcom-stock-is-tanking-today",
+      "https://seekingalpha.com/news/4591313-qualcomm-tumbles-leading-semiconductor-and-ai-stocks-lower"
+    ],
+    "note": "CPI release time is the standard 8:30am. A reported South Korean tax idea on AI profits also weighed on semis."
+  },
+  {
+    "id": 331,
+    "ticker": "QCOM",
+    "date": "2026-05-22",
+    "catalyst": "Qualcomm surged ~12% to a record on investor enthusiasm about AI devices, following its Thursday (May 21) announcement of an expanded Snapdragon partnership with Stellantis, plus analyst bullishness (Daiwa upgrade to Outperform, Tigress target $280).",
+    "event_type": "product",
+    "catalyst_public_at_et": "2026-05-21 09:00",
+    "before_move": "unclear",
+    "scope": "company",
+    "confidence": "low",
+    "sources": [
+      "https://www.cnbc.com/2026/05/22/qualcomms-stock-pop-shows-investors-waking-up-to-boom-in-ai-devices.html",
+      "https://www.tradingkey.com/news/market-movers/261922999-market-movers-qcom-20260522",
+      "https://www.gurufocus.com/news/8878388/qualcomm-qcom-shares-surge-as-ai-aspirations-gain-momentum"
+    ],
+    "note": "No clearly timed May 22 news found. Stellantis deal time and analyst-note dates unverified. The CEO-joins-Trump-China-trip headline was earlier in May. Skyworks/Qorvo also rallied, so partly a mobile-chip sentiment move."
+  },
+  {
+    "id": 466,
+    "ticker": "SBUX",
+    "date": "2025-10-31",
+    "catalyst": null,
+    "event_type": null,
+    "catalyst_public_at_et": null,
+    "before_move": "unclear",
+    "scope": "company",
+    "confidence": "low",
+    "sources": [
+      "https://www.cnbc.com/2025/11/03/starbucks-boyu-capital-china.html"
+    ],
+    "note": "FY Q4 2025 earnings came Oct 29 after close (reaction Oct 30); the China JV with Boyu was announced Nov 3. No news found for Oct 30 evening or Oct 31 pre-market."
+  },
+  {
+    "id": 470,
+    "ticker": "SBUX",
+    "date": "2026-02-04",
+    "catalyst": null,
+    "event_type": null,
+    "catalyst_public_at_et": null,
+    "before_move": "unclear",
+    "scope": "company",
+    "confidence": "low",
+    "sources": [
+      "https://www.fool.com/investing/2026/02/05/starbucks-shares-up-13-year-to-date-stock-buy/"
+    ],
+    "note": "No Feb 4-specific news found. William Blair's upgrade was Jan 23. Chipotle reported Feb 3 after close but fell ~11% after hours, which doesn't clearly explain a SBUX gain."
+  },
+  {
+    "id": 472,
+    "ticker": "SBUX",
+    "date": "2026-03-18",
+    "catalyst": "RBC Capital Markets downgraded Starbucks to Sector Perform from Outperform, saying growth expectations were too high and turnaround investments larger and more permanent than thought.",
+    "event_type": "analyst_action",
+    "catalyst_public_at_et": "2026-03-18 07:00",
+    "before_move": "yes",
+    "scope": "company",
+    "confidence": "high",
+    "sources": [
+      "https://www.cnbc.com/2026/03/18/rbc-downgrades-starbucks-after-strong-2026-start-says-growth-expectations-are-too-high.html",
+      "https://www.itiger.com/hant/news/2539260389"
+    ],
+    "note": "Note time approximate (pre-market). The $105 target was left unchanged."
+  },
+  {
+    "id": 440,
+    "ticker": "TSLA",
+    "date": "2025-11-21",
+    "catalyst": null,
+    "event_type": null,
+    "catalyst_public_at_et": null,
+    "before_move": "unclear",
+    "scope": "company",
+    "confidence": "low",
+    "sources": [
+      "https://finance.yahoo.com/news/tesla-stock-drops-to-end-the-week-as-robotaxi-optimism-battles-ai-bubble-jitters-210614113.html"
+    ],
+    "note": "Coverage attributes the ~1% drop to general AI-bubble jitters, offset by positive robotaxi news (Nevada self-certification, Arizona approval). No overnight company-specific catalyst found."
+  },
+  {
+    "id": 443,
+    "ticker": "TSLA",
+    "date": "2026-01-06",
+    "catalyst": "Nvidia unveiled Alpamayo, an open-source family of reasoning AI models for autonomous driving, at CES; investors saw it as letting other automakers challenge Tesla's self-driving lead.",
+    "event_type": "product",
+    "catalyst_public_at_et": "2026-01-05 16:00",
+    "before_move": "yes",
+    "scope": "related_company",
+    "confidence": "high",
+    "sources": [
+      "https://www.investing.com/news/stock-market-news/tesla-stock-falls-3-after-nvidia-unveils-opensource-ai-for-autonomous-vehicles-4432861",
+      "https://www.morningstar.com/stocks/tesla-shares-fall-market-concerns-about-autonomous-driving-competition-nvidia"
+    ],
+    "note": "Unveiled at Nvidia's CES keynote (Jan 5, time approximate). Investing.com piece published Jan 6 9:57am. Musk replied that it is competitive pressure 'in 5 or 6 years'."
+  },
+  {
+    "id": 450,
+    "ticker": "TSLA",
+    "date": "2026-05-11",
+    "catalyst": "Bloomberg/White House said Elon Musk would join President Trump's May 13-15 China trip, and Piper Sandler published a note saying investors get Tesla's Optimus robot business 'for free' at ~$400/share.",
+    "event_type": "other",
+    "catalyst_public_at_et": "2026-05-11 09:00",
+    "before_move": "unclear",
+    "scope": "company",
+    "confidence": "medium",
+    "sources": [
+      "https://www.bloomberg.com/news/articles/2026-05-11/musk-cook-set-to-join-trump-for-xi-summit-white-house-says",
+      "https://finance.yahoo.com/markets/stocks/articles/tesla-investors-getting-optimus-free-133512938.html",
+      "https://cryptobriefing.com/tesla-shares-rise-musk-trump-china-trip/"
+    ],
+    "note": "Both items are dated May 11, but times are unverified (Piper Yahoo article id suggests ~13:35 UTC = 9:35am ET). Some coverage puts the ~3-4% China-trip rally on May 12, so date attribution is slightly uncertain."
+  },
+  {
+    "id": 414,
+    "ticker": "TTWO",
+    "date": "2026-01-29",
+    "catalyst": null,
+    "event_type": null,
+    "catalyst_public_at_et": null,
+    "before_move": "unclear",
+    "scope": "company",
+    "confidence": "low",
+    "sources": [
+      "https://finance.yahoo.com/news/unity-stock-falls-alongside-two-155219712.html",
+      "https://finance.yahoo.com/news/stock-market-today-jan-29-151254174.html"
+    ],
+    "note": "No overnight catalyst found. Google's Project Genie launched during Jan 29 and drove the big gaming selloff on Jan 30, so it is not the cause of this gap. Microsoft's Jan 28 after-close results (Xbox content/services -5%) are a possible related factor, but no reporting links them to TTWO."
+  },
+  {
+    "id": 425,
+    "ticker": "TTWO",
+    "date": "2026-08-07",
+    "catalyst": "Take-Two reported fiscal Q1 2027 results before the open, with net bookings of $1.39B beating guidance and consensus, and said GTA VI pre-orders were 'unprecedented' while keeping its FY bookings guidance and the Nov 19 launch date.",
+    "event_type": "earnings",
+    "catalyst_public_at_et": "2026-08-07 07:00",
+    "before_move": "yes",
+    "scope": "company",
+    "confidence": "high",
+    "sources": [
+      "https://www.investing.com/news/stock-market-news/taketwo-sticks-to-annual-bookings-outlook-says-on-track-for-gta-vi-november-launch-4846091",
+      "https://www.gtaboom.com/the-take-two-august-7-earnings-call-is-when-we-finally-get-gta-6-pre-order-numbers-35ce"
+    ],
+    "note": "Pre-market release (Reuters story 7:42am ET; call 8am). Release time approximate. FY guidance ($8.0-8.2B) was below the ~$8.86B consensus, yet shares rose."
+  },
+  {
+    "id": 426,
+    "ticker": "TTWO",
+    "date": "2026-08-31",
+    "catalyst": "A Forbes article speculated that GTA Online could launch well after GTA VI's Nov 19 release, adding to worries about ongoing leaks of GTA VI gameplay footage.",
+    "event_type": "product",
+    "catalyst_public_at_et": "2026-08-29 12:00",
+    "before_move": "yes",
+    "scope": "company",
+    "confidence": "medium",
+    "sources": [
+      "https://www.tikr.com/blog/take-two-stock-fell-7-on-monday-heres-what-actually-spooked-investors",
+      "https://www.investing.com/news/stock-market-news/why-is-taketwo-interactive-stock-sliding-today-93CH-4882958",
+      "https://www.forbes.com/sites/paultassi/2026/08/29/why-rockstar-has-said-nothing-about-gta-6-online-so-far/"
+    ],
+    "note": "Forbes piece dated Aug 29 (Saturday; time unknown). Leak via the 'CyberLeek' account had run since mid-August. The market was also weak (Dow -0.6/-0.7%, oil and yields up)."
+  }
+]
