@@ -65,6 +65,25 @@ def _fake_connect(onset):
     return _conn
 
 
+class TestCasePool:
+    def test_any_swing_can_be_tested_but_donors_need_evidence(self, monkeypatch):
+        """Requiring the TEST swing to have 3+ clusters (they are replaced anyway)
+        capped the pool at 188, so Gate 4's 200 was unreachable."""
+        from datetime import date
+
+        import swing.eval.placebo as pb
+
+        donors = [{"id": 1, "ticker": "NVDA", "d": date(2026, 1, 5), "pre": 4}]
+        tests = [{"id": 1, "ticker": "NVDA", "d": date(2026, 1, 5)},
+                 {"id": 2, "ticker": "NVDA", "d": date(2026, 3, 2)},     # no clusters of its own
+                 {"id": 3, "ticker": "NVDA", "d": date(2026, 1, 12)},    # donor only 7 days earlier
+                 {"id": 4, "ticker": "TSLA", "d": date(2026, 3, 2)}]     # no same-ticker donor
+        monkeypatch.setattr(pb, "_eligible", lambda: donors)
+        monkeypatch.setattr(pb, "_testable", lambda: tests)
+        cases = pb.build_cases(10)
+        assert [(c.swing_id, c.donor_swing_id) for c in cases] == [(2, 1)]
+
+
 class TestEvalVersioning:
     def test_eval_hash_changes_with_the_placebo_design(self, tmp_path, monkeypatch):
         """config_hash only covers YAML, so a change to donor selection would

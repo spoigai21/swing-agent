@@ -51,6 +51,13 @@ def _eligible(min_pre: int = 3) -> list[dict]:
         ).fetchall()
 
 
+def _testable() -> list[dict]:
+    """Every swing whose move has a located onset; each can be a placebo test."""
+    with connect() as conn:
+        return conn.execute(
+            "SELECT id, ticker, d FROM swings WHERE onset_ts IS NOT NULL ORDER BY d").fetchall()
+
+
 def build_cases(n: int, seed: int = 0, min_gap_days: int = 14) -> list[PlaceboCase]:
     """Pair each swing with a donor from an EARLIER, well-separated week.
 
@@ -71,15 +78,18 @@ def build_cases(n: int, seed: int = 0, min_gap_days: int = 14) -> list[PlaceboCa
     genuinely irrelevant in content, which is exactly the question: does the
     model invent a causal story from temporally plausible but unrelated news?
     """
-    rows = _eligible()
+    # Only the DONOR needs evidence: the test swing's own clusters are replaced
+    # by the donor's, so any swing with an onset can be tested. Requiring 3+
+    # clusters of the test swing too capped the pool at 188 cases, short of
+    # Gate 4's 200.
     by_ticker: dict[str, list[dict]] = {}
-    for r in rows:
+    for r in _eligible():
         by_ticker.setdefault(r["ticker"], []).append(r)
 
     rng = random.Random(seed)
     cases: list[PlaceboCase] = []
-    for r in rows:
-        pool = [o for o in by_ticker[r["ticker"]]
+    for r in _testable():
+        pool = [o for o in by_ticker.get(r["ticker"], [])
                 if (r["d"] - o["d"]).days >= min_gap_days]
         if not pool:
             continue

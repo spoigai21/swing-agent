@@ -37,6 +37,33 @@ class TestDue:
         assert s.last_run("daily") == date(2026, 9, 14)
 
 
+def test_placebo_stops_spending_quota_once_gate_4_has_its_200(tmp_path, monkeypatch):
+    import pytest
+
+    from swing.eval import placebo
+
+    monkeypatch.setattr(s, "DATA", tmp_path)
+    monkeypatch.setattr(placebo, "cumulative", lambda: {"n": 200, "confabulated": 3, "rate": 0.015})
+    monkeypatch.setattr(placebo, "run", lambda **k: pytest.fail("must not spend quota"))
+    assert s.placebo_if_due(_at(s.PT, 2026, 9, 15, 0, 40)) == 0
+
+
+def test_last_night_tops_up_to_exactly_200(tmp_path, monkeypatch):
+    from swing.eval import placebo
+
+    asked = {}
+
+    def fake_run(n, **kwargs):
+        asked["n"] = n
+        return {"n": n}
+
+    monkeypatch.setattr(s, "DATA", tmp_path)
+    monkeypatch.setattr(placebo, "cumulative", lambda: {"n": 190, "confabulated": 1, "rate": 0.005})
+    monkeypatch.setattr(placebo, "run", fake_run)
+    s.placebo_if_due(_at(s.PT, 2026, 9, 15, 0, 40))
+    assert asked["n"] == 10
+
+
 def test_the_collector_runs_both_jobs():
     from swing.ingest.collector import build_jobs
 

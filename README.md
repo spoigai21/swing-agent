@@ -65,10 +65,12 @@ Polls: EDGAR every 10 min (12 stocks + 21 related companies) · IR/press RSS eve
 Scheduled inside the collector (`interface/schedule.py`), so no cron is needed:
 - **Weekdays 16:45 ET** — refresh, detect the day's swings, explain up to 3 new big
   moves, alert on |z| ≥ 3.
-- **Nightly 00:30 PT** — 12 placebo cases toward Gate 4's 200.
+- **Nightly 00:30 PT** — 17 placebo cases toward Gate 4's 200 (about 12 nights);
+  the job stops by itself at 200.
 
-That is 15 of the 20 free Gemini requests a day, leaving 5 for questions (normal
-days and repeated questions cost nothing). Each job records its last run in
+That is up to 20 of the 20 free Gemini requests a day: on a day the post-close run
+explains moves, unusual-move questions wait until the quota resets at midnight
+Pacific. Normal days and repeated questions cost nothing. Each job records its last run in
 `data/schedule_*.last`; delete a file to make that job run again today.
 
 ### ⚠️ Two persistence caveats — read both

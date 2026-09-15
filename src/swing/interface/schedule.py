@@ -11,8 +11,11 @@ README), so the daily work lives here rather than in a crontab.
                                   resets, so Gate 4's 200 cases accumulate
                                   without anyone remembering to run them (4.3)
 
-Budget: 3 + 12 of the 20 free Gemini requests a day, leaving 5 for questions.
-Normal-day questions and repeated questions spend none.
+Budget: up to 3 (post-close) + 17 (placebo) of the 20 free Gemini requests a
+day. On a day the post-close run explains moves, that leaves none for questions
+until the quota resets at midnight Pacific; normal-day and repeated questions
+spend none. The placebo job stops by itself once Gate 4's 200 cases are scored
+on the current version, handing the quota back.
 
 Each job records the local day it last ran under data/, and marks it BEFORE
 running: a restart must not repeat a day's alerts (they have no sent-state), and
@@ -33,7 +36,8 @@ PT = ZoneInfo("America/Los_Angeles")
 DAILY_AT_ET = time(16, 45)          # the daily bar has settled by then
 PLACEBO_AT_PT = time(0, 30)         # Gemini free-tier quotas reset at midnight Pacific
 DAILY_ATTRIBUTIONS = 3
-NIGHTLY_PLACEBO_CASES = 12
+NIGHTLY_PLACEBO_CASES = 17
+GATE4_CASES = 200                   # agent-plan.md 4.3
 
 
 def due(now: datetime, zone: ZoneInfo, at: time, last_run: date | None,
@@ -85,7 +89,11 @@ def placebo_if_due(now: datetime | None = None) -> int:
     mark("placebo", day)
     from swing.eval.placebo import cumulative, run
 
-    result = run(n=NIGHTLY_PLACEBO_CASES)
+    scored = cumulative()["n"]
+    if scored >= GATE4_CASES:
+        logger.info("placebo: %d cases scored on this version; Gate 4 sample complete", scored)
+        return 0
+    result = run(n=min(NIGHTLY_PLACEBO_CASES, GATE4_CASES - scored))
     logger.info("scheduled placebo for %s: %s scored this run; cumulative %s",
                 day, result.get("n"), cumulative())
     return 0
