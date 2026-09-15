@@ -41,6 +41,33 @@ class TestAnalystHeadline:
         assert h.endswith("raises price target to $286.54 from $276.47")
 
 
+class TestWireCopy:
+    """Reuters and Bloomberg stories reach us relabelled "Yahoo" (tier 4). The
+    wire's own dateline identifies them; nothing weaker is trusted."""
+
+    @staticmethod
+    def _row(summary):
+        return {"source": "yahoo", "summary": summary,
+                "raw": {"publisher": "Yahoo", "via": "finnhub"}}
+
+    def test_reuters_dateline_is_tier_two(self):
+        from swing.ingest.normalize import resolve_tier, wire_publisher
+
+        row = self._row("Dec 17 (Reuters) - Republican lawmakers accused Intel this week")
+        assert wire_publisher(row) == "reuters" and resolve_tier(row) == 2
+
+    def test_bloomberg_dateline_is_tier_two(self):
+        from swing.ingest.normalize import resolve_tier
+
+        assert resolve_tier(self._row("(Bloomberg) -- Apple Inc. is delaying Siri")) == 2
+
+    def test_merely_mentioning_a_wire_stays_excluded(self):
+        from swing.ingest.normalize import resolve_tier, wire_publisher
+
+        row = self._row("Shares slid after Bloomberg reported the delay, analysts said")
+        assert wire_publisher(row) is None and resolve_tier(row) == 4
+
+
 class TestRelatedConfig:
     def test_every_related_ticker_is_defined(self):
         known = set(stocks()) | set(related_companies())

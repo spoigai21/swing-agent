@@ -22,9 +22,10 @@ One-shot forms: `swing ask "why is NVDA down?"` · `swing why NVDA --date 2026-0
 - Each question fetches fresh prices and news first. A normal day is answered in
   a second or two with no model call; an unusual move takes ~20s and uses one
   Gemini request (free tier: 20/day). Asking again reuses the stored answer.
-- Evidence: SEC filings, company press releases, WSJ / CNBC / MarketWatch / Dow Jones,
-  analyst rating changes, and news about related companies (competitors, big
-  customers, suppliers), each placed before or after the moment the move started.
+- Evidence: SEC filings, company press releases, Reuters and Bloomberg wire stories,
+  WSJ / CNBC / MarketWatch / Dow Jones, analyst rating changes, and news about
+  related companies (competitors, big customers, suppliers), each placed before or
+  after the moment the move started.
 - When nothing published before the move explains it, it says so instead of guessing.
 - It refuses forecasts ("is NVDA a buy?").
 - Answers are only as good as the news it holds, so keep the collector running (below).

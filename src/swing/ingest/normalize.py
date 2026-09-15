@@ -93,10 +93,28 @@ def _ticker_patterns() -> dict[str, tuple[re.Pattern, re.Pattern]]:
     return pats
 
 
+_WIRE_DATELINE = re.compile(r"\((Reuters|Bloomberg)\) (?:--|-)")
+
+
+def wire_publisher(row: dict[str, Any]) -> str | None:
+    """The real publisher of syndicated wire copy, or None.
+
+    Finnhub labels everything Yahoo carries as "Yahoo", which is tier 4 — and
+    that includes genuine Reuters and Bloomberg stories, the tier-2 wire copy
+    this stack otherwise lacks (CODEBASE-PLAN §12). Their text keeps the wire's
+    own dateline ("Dec 17 (Reuters) - ...", "(Bloomberg) -- ..."). Only that
+    dateline is trusted; an article that merely mentions Bloomberg stays tier 4.
+    """
+    m = _WIRE_DATELINE.search(row.get("summary") or "")
+    return m.group(1).lower() if m else None
+
+
 def resolve_tier(row: dict[str, Any]) -> int:
-    """Publisher first, feed tier as fallback, tier 4 (excluded) as default."""
+    """Wire dateline first, then publisher, feed tier as fallback, tier 4 default."""
     raw = row.get("raw") or {}
     tiers = _publisher_tiers()
+    if wire := wire_publisher(row):
+        return tiers.get(_norm_publisher(wire), DEFAULT_TIER)
 
     # Finnhub company-news carries the real publisher in raw.source.
     for key in ("publisher", "source"):
@@ -222,7 +240,8 @@ def normalize_batch(limit: int = 256) -> dict[str, int]:
         for (r, tier), text, vec in zip(keep, texts, vecs, strict=True):
             mh, group = _minhash(text, int(cfg.get("minhash_num_perm", 128)))
             payload.append({
-                "raw_id": r["id"], "url": r["url"], "source": r["source"],
+                # Wire copy is credited to the wire, not to the pipe that carried it.
+                "raw_id": r["id"], "url": r["url"], "source": wire_publisher(r) or r["source"],
                 "source_tier": tier, "headline": r["headline"], "summary": r.get("summary"),
                 "body": r.get("body"),
                 "published_at": assert_utc(r["published_at"]),

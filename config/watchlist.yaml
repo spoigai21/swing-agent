@@ -91,7 +91,7 @@ market:
 # (U, F, GM) are never matched as bare words; only their aliases are.
 # ---------------------------------------------------------------------------
 related:
-  NVDA:  [AMD, INTC, TSM, MSFT, AMZN, META]    # GPU/CPU rivals, foundry, largest customers
+  NVDA:  [AMD, INTC, TSM, MSFT, AMZN, META, GOOGL]  # GPU/CPU rivals, foundry, largest customers (Alphabet also rivals it with TPUs)
   MRVL:  [AVGO, NVDA, AMZN, MSFT]              # custom-silicon rival, partner, customers
   MU:    [SNDK, WDC, STX, NVDA]                # memory/storage peers, HBM customer
   SNDK:  [MU, WDC, STX]                        # NAND peers, former parent

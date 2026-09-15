@@ -1439,3 +1439,38 @@ the day before), medium confidence. Matches the answer key.
 
 **Gate 4 remains open:** the placebo count restarted at 0 on the current version
 (model, prompt v3, config) and needs 200 cases at up to 20 requests/day.
+
+## 16.7 Working the gates (2026-09-14, continued)
+
+**Gate 2 — what bounds recall is sources, not ranking.** Re-ranking the stored
+clusters offline: relevance-only ranking scores the same 22/33 as the tuned
+weights, and every novelty weight tried (0.25-2.0) also 22/33. All 11 misses are
+causes never ingested with a trustworthy timestamp. Candidates examined:
+
+| Candidate source | Verdict |
+|---|---|
+| Finnhub items from Yahoo/Benzinga/SeekingAlpha (~66k, tier 4) | **Not admitted wholesale.** In the 11 miss windows they are 18-107 items of mostly SEO/listicle content and contain almost none of the causes |
+| Reuters/Bloomberg copy inside those Yahoo items | **Admitted as tier 2**, identified only by the wire's own dateline (`normalize.wire_publisher`): 955 stories. Real wire coverage the stack lacked, though it covers none of the 11 misses |
+| Google News RSS search | **Rejected.** Date-filtered (historical) results are stamped at midnight, so a "stock soars 11%" story would read as pre-move; live results are 40% untimed and dominated by tier-4 publishers, with little Reuters/Bloomberg |
+| Company newsrooms (Qualcomm, Marvell) | WAF/SPA-blocked (§11), and RSS cannot backfill history |
+
+Related-map correction: NVDA now also lists GOOGL (a top customer, and a rival
+through TPUs); its absence was an inconsistency in the a-priori map.
+
+The honest read: on this answer key the $0 stack is near its ceiling. The misses
+are Bloomberg scoops, keynote and X-post news, a leak and an analyst note Yahoo
+never recorded. A held-out answer key of 32 moves never used for tuning is being
+researched so Gate 2 is judged on data the changes did not see.
+
+**Gate 5.1 (novelty) — resolved by the plan's own rule.** "Measure recall@10
+before and after adding novelty; if it doesn't move, keep the heuristic and skip
+the MLP." It does not move (22/33 at every weight; recall@1 6→7, one case, noise),
+so `w_novelty` stays 0 and no MLP is trained.
+
+**Gate 5.3 (retrieval fine-tune)** needs 200+ confirmed pairs; there are 22.
+**Gate 5.2 (event classifier)** has no labelled cluster set beyond the answer
+key. Both stay unbuilt, which the gate allows ("any that doesn't, drop").
+
+**Gate 4 is quota-bound, not code-bound:** 200 cases at ≤20 requests/day on the
+free tier. The nightly job (12/night) reaches 200 in ~17 days; a paid key would
+finish it in minutes.
