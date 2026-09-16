@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>com.swing.collector</string>
+
+  <!-- caffeinate -is holds PreventUserIdleSystemSleep: this Mac reports
+       `sleep 1`, and time.monotonic() freezes across sleep, so the collector
+       silently stops polling. See CODEBASE-PLAN 8.5. -->
+  <key>ProgramArguments</key>
+  <array>
+    <string>/usr/bin/caffeinate</string>
+    <string>-is</string>
+    <string>/Users/shayan/Desktop/stock-agent-analysis/.venv/bin/swing</string>
+    <string>collect</string>
+    <string>--daemon</string>
+  </array>
+
+  <key>WorkingDirectory</key><string>/Users/shayan/Desktop/stock-agent-analysis</string>
+
+  <!-- RSS cannot be backfilled: every hour down is coverage gone for good, and
+       that IS Gate 2's coverage number. Restart on crash, on OOM kill, at login. -->
+  <key>KeepAlive</key><true/>
+  <key>RunAtLoad</key><true/>
+  <!-- Postgres lives in Docker Desktop, which does not autostart. Back off
+       instead of spinning while it comes up. -->
+  <key>ThrottleInterval</key><integer>30</integer>
+
+  <key>StandardOutPath</key><string>/Users/shayan/Desktop/stock-agent-analysis/data/launchd.out</string>
+  <key>StandardErrorPath</key><string>/Users/shayan/Desktop/stock-agent-analysis/data/launchd.err</string>
+</dict>
+</plist>

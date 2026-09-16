@@ -1362,14 +1362,14 @@ there as optimistic until it holds on moves researched afterwards.
 
 | Phase (agent-plan) | What it must do now | State after this audit | Gate |
 |---|---|---|---|
-| −1 Collector | Collect continuously, including the new sources | Running with analyst and related-company jobs. Dead-feed alert extended to Finnhub news and analyst ratings, which it could not see before | Passed. **Open:** laptop sleep and `~/Desktop` TCC still threaten continuity (§8.5, §10.6) |
+| −1 Collector | Collect continuously, including the new sources | Running with analyst and related-company jobs. Dead-feed alert extended to Finnhub news and analyst ratings, which it could not see before | Passed. Sleep and crash continuity now handled by a KeepAlive LaunchAgent (§16.18); the `~/Desktop` TCC blocker turned out not to exist |
 | 0 Data | Fresh prices per question; correct timestamps; the two new sources | `prices.refresh_daily` per question; Finnhub times corrected; analyst + related data backfilled | Bars pass. "90 days of articles" met through the 12-month Finnhub backfill (tier 3 subset); live RSS only since 2026-08-30 |
 | 1 Split, swings, onset | Same maths; one day at a time for a question | `swings.detect_day` captures intraday and onset for the asked-about day | Passed. The question path does not use drift swings |
 | 2 Retrieval | Find the real cause in the top 10, measured on the answer key | GDELT wire copy added (§16.9); the gate is split into coverage and covered-recall (§16.13) | **Split.** Ranking **passes**: recall@10 = 0.97 (n=31) once the catalyst is in the corpus. Coverage **fails**: 0.56 — 24 of 25 misses are missing evidence, not bad ranking. Overall 0.545 vs the derived 0.68. §16.13 |
 | 3 Agent | Explain from own and related news; abstain in code | `attribution_v3` on `gemini-3.6-flash`; guards unchanged; model calls time out and retry transient errors | **Passed 5/5 on v3** (v2 failed 4/5), §16.6 |
 | 4 Evaluation | Confabulation < 10% over 200 placebo cases on the current version | Placebo restarted on the new version (config + prompt changed); failed calls no longer scored. **12 cases now run nightly** (17 starved live questions, §16.16) from the collector (00:30 PT, after the quota reset), stopping at 200 | **Open** until 200 accumulate (~12 nights). Adding GDELT moved `config_hash`, correctly resetting the count to 0/200 (§16.12) |
 | 5 ML | Unchanged | Not started | Blocked on Gates 2 and 4 |
-| 6 Interface | One question in, one answer out; alerts on big moves | Built. The collector now runs the post-close batch (up to 3 attributions, last 3 days only) and alerts every weekday at 16:45 ET (`interface/schedule.py`); launchd/cron cannot read `~/Desktop`, the running collector can | End-to-end live runs verified; scheduled runs start the next weekday |
+| 6 Interface | One question in, one answer out; alerts on big moves | Built. The collector now runs the post-close batch (up to 3 attributions, last 3 days only) and alerts every weekday at 16:45 ET (`interface/schedule.py`); launchd CAN read `~/Desktop` — the long-standing claim otherwise was wrong (§16.18), and the collector now runs under a LaunchAgent | End-to-end live runs verified; scheduled runs start the next weekday |
 
 `agent-plan.md`, `data-sources.md` and `swing-cli.md` are the original specs and
 stay as written; this document records where the build departs from them
@@ -1807,3 +1807,31 @@ The failure it masked was a bad test, not bad code: the fixture used
 sits just below the decimal, while the real value `-2.5549` prints `"2.6"`. The
 assertion pinned a rounded digit, which tests float representation rather than
 behaviour; it now asserts the stable parts of the sentence.
+
+### 16.18 The `~/Desktop` TCC blocker did not exist
+
+§8.5 and §10.6 both concluded that an always-on host was the only fix for
+collector continuity, partly because "launchd/cron cannot read `~/Desktop`". That
+was never tested. It is false:
+
+    launchd job -> ls /Users/shayan/Desktop/stock-agent-analysis/pyproject.toml
+    exit=0
+
+So the collector now runs under `~/Library/LaunchAgents/com.swing.collector.plist`
+(kept in `deploy/`), wrapped in `caffeinate -is` for the sleep problem, with
+`KeepAlive` and `RunAtLoad`. Verified the way that matters — `kill -9` the
+process and watch launchd bring it back:
+
+    pid before 53490 -> kill -9 -> pid after 53575, restarted automatically
+
+This matters more than it looks. RSS cannot be backfilled, so every hour the
+collector is down is coverage permanently gone, and coverage is exactly the half
+of Gate 2 that fails (0.56). On 2026-09-09/10/11 the collector was down three
+consecutive weekdays. A KeepAlive agent would have survived all three, plus the
+OOM kill on 2026-09-15 and every terminal close.
+
+⚠️ Two honest caveats. The probe was loaded from a Terminal session, and macOS
+can attribute TCC to the responsible parent process, so a genuine reboot is the
+real test — `data/launchd.err` is where a permission denial would surface.
+And `caffeinate -is` still does not survive a lid close, so an always-on host
+remains the better answer; this makes the laptop much less lossy in the meantime.
