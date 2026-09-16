@@ -1835,3 +1835,42 @@ can attribute TCC to the responsible parent process, so a genuine reboot is the
 real test — `data/launchd.err` is where a permission denial would surface.
 And `caffeinate -is` still does not survive a lid close, so an always-on host
 remains the better answer; this makes the laptop much less lossy in the meantime.
+
+### 16.19 Gate 2, both sets, after GDELT
+
+Re-scored blind by independent scorers working from identical cluster listings,
+strict judging (a generic roundup never counts as retrieving a catalyst):
+
+| set | before | after | |
+|---|---|---|---|
+| dev (33 scoreable) | 22/33 = 0.67 | **23/33 = 0.70** | +1: #251 |
+| held-out (22 scoreable) | 9/22 = 0.41 | **11/22 = 0.50** | +4, -2 |
+| held-out, re-judged strictly | 7/22 = 0.32 | 11/22 = 0.50 | |
+
+**Every upgrade across both sets came from GDELT wire copy**: #220 NVDA (CNBC on
+the stalled OpenAI investment), #276 MU (the UBS call), #359 AAPL (WWDC Siri),
+#472 SBUX (the RBC downgrade), #251 MRVL (CNBC on Huang's trillion-dollar
+remark — the exact article the answer key cites). Nothing previously passing was
+displaced on either set, so the noise GDELT adds has not yet cost a hit.
+
+⚠️ **The generalization gap is still 20 points** (dev 0.70 vs held-out 0.50), and
+that is the expected shape: dev is where the thresholds and weights were tuned.
+Held-out remains the only honest estimate, and it is the number to quote.
+
+These totals are the un-split metric. The split (16.13) is what should drive
+work: **coverage 0.56 FAIL, recall-given-coverage 0.97 PASS.** Both sets agree
+that the misses are overwhelmingly absent evidence rather than bad ranking.
+
+**PR Newswire, measured and deliberately left alone.** 3,730 PRN articles are
+stored and normalized (17% of the 22,452-article usable pool), but **3,645 carry
+no ticker tag at all** and only 9 have ever reached a cluster. Because
+`retrieval._articles_in` selects on ticker overlap, untagged articles are never
+retrieved — so this is dead weight (embedding compute, storage), NOT ranking
+noise, and it cannot be costing recall. Skipping their embedding would save
+compute and change no metric, so `normalize` is left untouched. Recorded here so
+the next person does not mistake the 17% for a retrieval problem.
+
+Also measured and not "fixed": `prn_all` 404s on roughly 40% of polls, but the
+configured URL returns HTTP 200 with a valid feed on retry (6-poll probe: 3 ok,
+3 fail). That is upstream flakiness that self-recovers on the next 900s cycle,
+not a dead URL — swapping a `verified: true` tier-2 feed over it would be churn.
