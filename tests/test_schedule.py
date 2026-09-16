@@ -49,6 +49,7 @@ def test_placebo_stops_spending_quota_once_gate_4_has_its_200(tmp_path, monkeypa
 
 
 def test_last_night_tops_up_to_exactly_200(tmp_path, monkeypatch):
+    from swing.agent import llm
     from swing.eval import placebo
 
     asked = {}
@@ -60,8 +61,43 @@ def test_last_night_tops_up_to_exactly_200(tmp_path, monkeypatch):
     monkeypatch.setattr(s, "DATA", tmp_path)
     monkeypatch.setattr(placebo, "cumulative", lambda: {"n": 190, "confabulated": 1, "rate": 0.005})
     monkeypatch.setattr(placebo, "run", fake_run)
+    monkeypatch.setattr(llm, "remaining_today", lambda: llm.DAILY_QUOTA)
     s.placebo_if_due(_at(s.PT, 2026, 9, 15, 0, 40))
     assert asked["n"] == 10
+
+
+def test_a_burnt_day_shortens_the_batch_instead_of_spending_the_tail(tmp_path, monkeypatch):
+    """Failed calls spend quota without storing a row. If the night has only 8
+    requests left, the batch must be 8 - INTERACTIVE_RESERVE, not the constant
+    12, or the tail of the run walks into 429 RESOURCE_EXHAUSTED."""
+    from swing.agent import llm
+    from swing.eval import placebo
+
+    asked = {}
+
+    def fake_run(n, **kwargs):
+        asked["n"] = n
+        return {"n": n}
+
+    monkeypatch.setattr(s, "DATA", tmp_path)
+    monkeypatch.setattr(placebo, "cumulative", lambda: {"n": 0, "confabulated": 0, "rate": None})
+    monkeypatch.setattr(placebo, "run", fake_run)
+    monkeypatch.setattr(llm, "remaining_today", lambda: 8)
+    s.placebo_if_due(_at(s.PT, 2026, 9, 15, 0, 40))
+    assert asked["n"] == 8 - s.INTERACTIVE_RESERVE
+
+
+def test_an_exhausted_day_runs_nothing(tmp_path, monkeypatch):
+    import pytest
+
+    from swing.agent import llm
+    from swing.eval import placebo
+
+    monkeypatch.setattr(s, "DATA", tmp_path)
+    monkeypatch.setattr(placebo, "cumulative", lambda: {"n": 0, "confabulated": 0, "rate": None})
+    monkeypatch.setattr(placebo, "run", lambda **k: pytest.fail("must not call a spent quota"))
+    monkeypatch.setattr(llm, "remaining_today", lambda: s.INTERACTIVE_RESERVE)
+    assert s.placebo_if_due(_at(s.PT, 2026, 9, 15, 0, 40)) == 0
 
 
 def test_the_collector_runs_both_jobs():
@@ -101,3 +137,44 @@ class TestQuotaLeavesRoomForQuestions:
         # live question answered `model_unavailable`.
         assert s.INTERACTIVE_RESERVE >= 3
         assert s.NIGHTLY_PLACEBO_CASES < s.DAILY_MODEL_QUOTA - s.DAILY_ATTRIBUTIONS
+
+
+class TestQuotaLedgerCountsAttempts:
+    """The attributions table stores only SUCCESSFUL calls, so it undercounts
+    the day: a failed call plus retries spends quota and leaves no row. On
+    2026-09-16 that made the DB read "10 left" when 0 remained, and the run
+    walked straight into 429 RESOURCE_EXHAUSTED."""
+
+    def _ledger(self, tmp_path, monkeypatch):
+        from swing.agent import llm
+
+        monkeypatch.setattr(llm, "QUOTA_PATH", tmp_path / "gemini_usage.json")
+        return llm
+
+    def test_a_failed_attempt_still_costs_quota(self, tmp_path, monkeypatch):
+        llm = self._ledger(tmp_path, monkeypatch)
+        assert llm.spent_today() == 0
+        for _ in range(3):           # one call that failed and retried twice
+            llm.record_call()
+        assert llm.spent_today() == 3
+        assert llm.remaining_today() == llm.DAILY_QUOTA - 3
+
+    def test_remaining_never_goes_negative(self, tmp_path, monkeypatch):
+        llm = self._ledger(tmp_path, monkeypatch)
+        llm.record_call(llm.DAILY_QUOTA + 5)
+        assert llm.remaining_today() == 0
+
+    def test_invoke_counts_the_attempt_before_calling(self):
+        import inspect
+
+        from swing.agent import llm
+
+        src = inspect.getsource(llm.invoke_with_retry)
+        assert "record_call()" in src
+        assert src.index("record_call()") < src.index("runnable.invoke")
+
+    def test_the_nightly_batch_is_sized_by_real_remaining_quota(self):
+        import inspect
+
+        assert "remaining_today" in inspect.getsource(s.placebo_if_due)
+        assert "budget" in inspect.getsource(s.placebo_if_due)

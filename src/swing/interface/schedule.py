@@ -98,10 +98,20 @@ def placebo_if_due(now: datetime | None = None) -> int:
     from swing.eval.placebo import cumulative, run
 
     scored = cumulative()["n"]
+    # Size the batch against what the day ACTUALLY has left, not the constant:
+    # failed calls spend quota without storing a row, so a bad night can leave
+    # far less than 20. agent/llm.py counts attempts.
+    from swing.agent.llm import remaining_today
+
+    budget = max(0, remaining_today() - INTERACTIVE_RESERVE)
+    if budget <= 0:
+        logger.info("placebo skipped: %d requests left today, all reserved for questions",
+                    remaining_today())
+        return 0
     if scored >= GATE4_CASES:
         logger.info("placebo: %d cases scored on this version; Gate 4 sample complete", scored)
         return 0
-    result = run(n=min(NIGHTLY_PLACEBO_CASES, GATE4_CASES - scored))
+    result = run(n=min(NIGHTLY_PLACEBO_CASES, GATE4_CASES - scored, budget))
     logger.info("scheduled placebo for %s: %s scored this run; cumulative %s",
                 day, result.get("n"), cumulative())
     return 0

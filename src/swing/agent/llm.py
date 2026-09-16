@@ -18,12 +18,15 @@ outside this module names a model or a vendor.
 """
 from __future__ import annotations
 
+import json
+from datetime import datetime
 from typing import Any
+from zoneinfo import ZoneInfo
 
 from tenacity import retry, retry_if_exception, stop_after_attempt, wait_exponential
 
 from swing.common.http import _RateLimiter
-from swing.common.settings import get_settings
+from swing.common.settings import REPO_ROOT, get_settings
 
 _llm_limiter = _RateLimiter(4.0)   # free tiers throttle per-minute as well as per-day
 
@@ -32,6 +35,48 @@ def _is_transient(exc: BaseException) -> bool:
     """Rate limits (429) and overload (503). Both usually clear quickly."""
     text = str(exc)
     return any(s in text for s in ("429", "RESOURCE_EXHAUSTED", "503", "UNAVAILABLE"))
+
+
+# ---------------------------------------------------------------- quota ledger
+# The attributions table only stores SUCCESSFUL calls, so it undercounts what the
+# day actually cost: a failed call plus its retries spends real quota and leaves
+# no row. On 2026-09-16 that made "10 calls left" read from the DB when the true
+# figure was 0, and the run walked into 429 RESOURCE_EXHAUSTED. Count attempts
+# here instead, where every request passes through.
+QUOTA_PATH = REPO_ROOT / "data" / "gemini_usage.json"
+DAILY_QUOTA = 20                     # free tier, per model per day
+PT = ZoneInfo("America/Los_Angeles")  # Google's free-tier day resets at midnight PT
+
+
+def _today() -> str:
+    return datetime.now(PT).strftime("%Y-%m-%d")
+
+
+def spent_today() -> int:
+    try:
+        return int(json.loads(QUOTA_PATH.read_text()).get(_today(), 0))
+    except (OSError, ValueError, TypeError):
+        return 0
+
+
+def remaining_today() -> int:
+    return max(0, DAILY_QUOTA - spent_today())
+
+
+def record_call(n: int = 1) -> int:
+    """Count one request ATTEMPT, successful or not."""
+    try:
+        data = json.loads(QUOTA_PATH.read_text())
+    except (OSError, ValueError):
+        data = {}
+    day = _today()
+    data[day] = int(data.get(day, 0)) + n
+    # Keep the file small; a fortnight is plenty to debug a bad night.
+    for old in sorted(data)[:-14]:
+        data.pop(old, None)
+    QUOTA_PATH.parent.mkdir(parents=True, exist_ok=True)
+    QUOTA_PATH.write_text(json.dumps(data, indent=2, sort_keys=True))
+    return data[day]
 
 
 @retry(
@@ -51,6 +96,7 @@ def invoke_with_retry(runnable, prompt: str):
     cap. The batch has no latency requirement, so pacing costs nothing.
     """
     _llm_limiter.wait()
+    record_call()          # count the ATTEMPT: a failure costs quota too
     return runnable.invoke(prompt)
 
 
