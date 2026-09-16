@@ -1874,3 +1874,31 @@ Also measured and not "fixed": `prn_all` 404s on roughly 40% of polls, but the
 configured URL returns HTTP 200 with a valid feed on retry (6-poll probe: 3 ok,
 3 fail). That is upstream flakiness that self-recovers on the next 900s cycle,
 not a dead URL — swapping a `verified: true` tier-2 feed over it would be churn.
+
+### 16.20 Gate 4 is arithmetic, and the day costs more than it stores
+
+Spending the whole day's budget on Gate 4 produced **4 cases**, not 10. The run
+stopped at `429 RESOURCE_EXHAUSTED ... limit: 20, model: gemini-3.6-flash`.
+
+Two separate things ate the day:
+
+1. **The attributions table undercounts quota.** It stores successful calls
+   only. The morning's 503 plus its retries spent real requests and left no
+   rows, so "20 minus rows stored" read 10 remaining when 0 were left. Fixed by
+   counting ATTEMPTS in `agent/llm.py` (`data/gemini_usage.json`, keyed by
+   Pacific day) and sizing the nightly batch from `remaining_today()`.
+2. **The morning's 9 cases were invalidated hours later** by editing
+   `eval/placebo.py` — `eval_hash` covers that file, so the consecutive-failure
+   fix reset them (16.12 is the same mechanism for `config_hash`). The fix was
+   to failure handling, not to donor selection or what the model sees, so those
+   9 were still comparable; the hash cannot tell a bug fix from a design change.
+
+⚠️ **Practical rule: stop editing `eval/placebo.py` and the hashed YAML while
+Gate 4 accrues.** At 12 cases a night toward 200, one edit to that file costs a
+night. Gate 4 reset twice on 2026-09-16 alone.
+
+**No amount of effort finishes Gate 4 in a day.** 200 cases at 20 requests/day
+is ten days minimum, and that assumes zero interactive use and zero failures.
+Using a second model (`gemini-3.7-flash` has its own 20/day) would add requests
+but change `model_id`, and pooling across models is exactly what the version
+tuple exists to prevent — the resulting number would describe no system.
