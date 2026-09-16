@@ -3,6 +3,8 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
+import pytest
+
 from swing.ingest.gdelt import domains, org_pattern, page_title, parse_ts
 
 
@@ -118,3 +120,37 @@ def test_related_companies_get_a_real_name_not_the_bare_ticker():
     pattern = org_pattern("GOOGL")
     assert pattern != "GOOGL"
     assert pattern.replace(" ", "").isalpha() and pattern.isupper()
+
+
+class TestOnDemandRefresh:
+    """The interactive path asks per question; bytes are billed per query."""
+
+    def test_an_already_stored_window_costs_nothing(self, monkeypatch):
+        from swing.ingest import gdelt
+
+        monkeypatch.setattr(gdelt, "covered", lambda s, e: True)
+        monkeypatch.setattr(gdelt, "fetch_window",
+                            lambda *a, **k: pytest.fail("must not rescan a stored window"))
+        assert gdelt.refresh(["NVDA"], datetime(2026, 3, 5, tzinfo=UTC),
+                             datetime(2026, 3, 7, tzinfo=UTC)) == 0
+
+    def test_an_uncovered_window_is_fetched(self, monkeypatch):
+        from swing.ingest import gdelt
+
+        seen = {}
+        monkeypatch.setattr(gdelt, "covered", lambda s, e: False)
+        monkeypatch.setattr(gdelt, "fetch_window",
+                            lambda tickers, s, e: seen.setdefault("tickers", tickers) and 0 or 7)
+        assert gdelt.refresh(["NVDA", "GOOGL"], datetime(2026, 3, 5, tzinfo=UTC),
+                             datetime(2026, 3, 7, tzinfo=UTC)) == 7
+        assert seen["tickers"] == ["NVDA", "GOOGL"]
+
+
+def test_the_question_path_refreshes_wire_copy():
+    # Gate 2's misses are missing sources; the interactive path must not answer
+    # from news that predates the collector's last 4-hourly GDELT pass.
+    import inspect
+
+    from swing.interface import explain
+
+    assert "gdelt.refresh" in inspect.getsource(explain._refresh_news)

@@ -241,7 +241,7 @@ def _refresh_news(ticker: str, d: date) -> None:
     """Pull what the collector may not hold yet: SEC filings (the stock's and its
     related companies'), analyst actions, and news for the stock and each
     related company."""
-    from swing.ingest import analyst, edgar, news_finnhub
+    from swing.ingest import analyst, edgar, gdelt, news_finnhub
     from swing.ingest.config import related
     from swing.ingest.normalize import normalize_all
 
@@ -252,6 +252,14 @@ def _refresh_news(ticker: str, d: date) -> None:
             ("company news", lambda: news_finnhub.fetch(ticker, start, end))]
     jobs += [(f"{t} news", lambda t=t: news_finnhub.fetch(t, start, end))
              for t in related(ticker)]
+    # Wire copy (Reuters, Bloomberg, WSJ, FT) that no free API carries. The
+    # collector's 4h pass covers recent days; this fills older windows and the
+    # last few hours. gdelt.refresh is a no-op once the window is stored, so
+    # asking the same question twice does not pay for the same bytes twice.
+    jobs.append(("wire copy", lambda: gdelt.refresh(
+        [ticker, *related(ticker)],
+        datetime.combine(start, time(), tzinfo=UTC),
+        datetime.combine(end, time(23, 59, 59), tzinfo=UTC))))
     for name, fn in jobs:
         try:
             fn()

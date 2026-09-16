@@ -234,6 +234,29 @@ def _client():
         return None
 
 
+def covered(start: datetime, end: datetime) -> bool:
+    """True when a query has already stored articles spanning this window."""
+    from swing.store.session import connect
+
+    with connect() as conn:
+        row = conn.execute(
+            "SELECT 1 FROM articles_raw WHERE raw->>'via' = %s "
+            "AND published_at BETWEEN %s AND %s LIMIT 1",
+            (SOURCE, start, end)).fetchone()
+    return row is not None
+
+
+def refresh(tickers, start: datetime, end: datetime) -> int:
+    """Fetch a window on demand, unless it is already stored.
+
+    The interactive path calls this per question. Without the coverage check a
+    repeated question would rescan — and re-bill — the same ~0.4 GB every time.
+    """
+    if covered(start, end):
+        return 0
+    return fetch_window(tickers, start, end)
+
+
 def poll(days: int = 2) -> int:
     """Recent articles for every watchlist stock, in a single query."""
     end = datetime.now(UTC)
