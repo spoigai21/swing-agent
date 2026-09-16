@@ -131,17 +131,34 @@ def resolve_tier(row: dict[str, Any]) -> int:
 
 
 def resolve_tickers(row: dict[str, Any]) -> list[str]:
+    """Provenance tags UNIONED with the companies the text actually names.
+
+    ⚠️ These three used to return early, and that lost evidence. An article
+    pulled from NVDA's Finnhub company feed was tagged NVDA and nothing else, so
+    "Apple stock drops 6% on MacBook and iPad price hikes" never carried AAPL
+    and could not be retrieved for an Apple swing at all. 1,259 tagged articles
+    (7%) named a watchlist company their tags omitted, including an Apple IR
+    release about Broadcom and a CNBC piece headlined "AI concerns hit Alphabet"
+    tagged MSFT.
+
+    Provenance is still trusted — an EDGAR filer and a single-company IR feed are
+    facts about who published, not guesses — it simply no longer suppresses what
+    the headline says. `_ticker_patterns` keeps this from over-tagging: a short
+    symbol must appear in capitals, and aliases match on word boundaries.
+    """
     raw = row.get("raw") or {}
-    if raw.get("ticker"):                       # EDGAR: authoritative
-        return [str(raw["ticker"]).upper()]
-    if raw.get("feed_tickers"):                 # single-company IR feed
-        return [t.upper() for t in raw["feed_tickers"]]
+    tags: set[str] = set()
+    if raw.get("ticker"):                       # EDGAR: the filer
+        tags.add(str(raw["ticker"]).upper())
+    if raw.get("feed_tickers"):                 # GDELT orgs, single-company feed
+        tags.update(t.upper() for t in raw["feed_tickers"])
     if row.get("source") in _feed_tickers():
-        return [t.upper() for t in _feed_tickers()[row["source"]]]
+        tags.update(t.upper() for t in _feed_tickers()[row["source"]])
 
     text = f"{row.get('headline') or ''} {row.get('summary') or ''}"
-    return sorted(t for t, (sym, alias) in _ticker_patterns().items()
-                  if sym.search(text) or alias.search(text))
+    tags.update(t for t, (sym, alias) in _ticker_patterns().items()
+                if sym.search(text) or alias.search(text))
+    return sorted(tags)
 
 
 def retag_all(batch: int = 2000) -> int:

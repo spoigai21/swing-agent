@@ -1902,3 +1902,51 @@ is ten days minimum, and that assumes zero interactive use and zero failures.
 Using a second model (`gemini-3.7-flash` has its own 20/day) would add requests
 but change `model_id`, and pooling across models is exactly what the version
 tuple exists to prevent — the resulting number would describe no system.
+
+### 16.21 Coverage: stale labels, and a tagging bug that hid good evidence
+
+Two quota-free changes today, measured end to end.
+
+**1. Recovered 8 stale labels.** `catalyst_coverage` asks whether an annotation's
+`true_article_ids` is populated, and those were filled in by hand WHEN THE SWING
+WAS ANNOTATED. GDELT has since added 3,317 articles, so some labels named a
+catalyst whose article now exists with nothing pointing at it. Two scorers
+re-checked all 24 uncovered annotations against the current corpus, strictly and
+read-only; every claimed article was then verified pre-onset before any write.
+
+    coverage 31/55 = 0.564  ->  39/55 = 0.709
+
+⚠️ Not a metric fix: the LABEL (what caused the move) never changed, only the
+pointer to the evidence. Five near-misses were rejected because the right
+article exists but published AFTER onset (#248 XConn 16:10 vs 14:30, #315
+Qualcomm AI200 15:30 vs 13:40, #353 Siri/FTC 21:48 vs 14:50, #218 GTC, #293
+Broadcom). #447 was rejected too: its label names Musk's AI5 tape-out as the
+driver with a UBS upgrade as prior-day context, and only the upgrade is in the
+corpus — crediting it would be the loose hit the scoring rules exclude.
+Annotations backed up to `data/annotations_backup_2026-09-16.json` first.
+
+**2. Fixed `resolve_tickers` suppressing the headline.** It returned early on
+provenance, so an article pulled from NVDA's Finnhub company feed was tagged
+NVDA and nothing else. "Apple stock drops 6% on MacBook and iPad price hikes"
+therefore never carried AAPL and could not be retrieved for the Apple swing it
+explained. **1,259 tagged articles (7%) named a watchlist company their tags
+omitted** — including an Apple IR release about Broadcom, and a CNBC piece
+headlined "AI concerns hit Alphabet" tagged MSFT. Provenance is still trusted; it
+just no longer suppresses what the text says.
+
+| | before | after | |
+|---|---|---|---|
+| catalyst coverage | 0.709 | 0.709 | unchanged: retagging adds no articles |
+| recall@10 (covered) | 0.897 | **0.974** | PASS |
+| recall@10 (blind) | 0.636 | **0.691** | **FAIL -> PASS** (target 0.68) |
+| tags per article | 1.08 | 1.27 | 2,686 rows retagged |
+
+Coverage rose because labels were stale; recall rose because evidence that was
+always in the corpus became reachable. Neither number was tuned.
+
+**The single remaining covered miss is #415 TTWO**, whose catalyst is Google's
+Project Genie rollout. TTWO's `related` list is `[SONY, MSFT, RBLX, U]`, so
+Alphabet's news is outside its retrieval set. ⚠️ Adding GOOGL there would be
+tuning configuration on a labelled case — the same refusal as TSLA->NVDA in
+16.11. If that edge is right it is right on economic grounds and must be
+validated on moves nobody has inspected.

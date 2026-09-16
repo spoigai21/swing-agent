@@ -120,3 +120,46 @@ class TestTierConfigIntegrity:
                 assert pub[f.source.lower()] == f.tier, (
                     f"{f.id}: feed tier {f.tier} != publisher tier "
                     f"{pub[f.source.lower()]} for {f.source}")
+
+
+class TestProvenanceDoesNotSuppressTheHeadline:
+    """An article from NVDA's company feed that is ABOUT Apple must carry both.
+
+    The early returns meant "Apple stock drops 6% on MacBook and iPad price
+    hikes", pulled from Finnhub's NVDA feed, was tagged NVDA only — so it could
+    not be retrieved for the Apple swing it actually explained.
+    """
+
+    def test_feed_ticker_is_unioned_with_the_company_named(self):
+        from swing.ingest.normalize import resolve_tickers
+
+        tags = resolve_tickers({
+            "raw": {"ticker": "NVDA"},
+            "source": "cnbc",
+            "headline": "Apple stock drops 6% on MacBook and iPad price hikes",
+            "summary": "",
+        })
+        assert "AAPL" in tags, "the company the headline names must be tagged"
+        assert "NVDA" in tags, "provenance must not be discarded either"
+
+    def test_gdelt_feed_tickers_are_kept_and_extended(self):
+        from swing.ingest.normalize import resolve_tickers
+
+        tags = resolve_tickers({
+            "raw": {"feed_tickers": ["NVDA"]},
+            "source": "cnbc",
+            "headline": "Marvell Technology stock jumps on Jensen Huang's forecast",
+            "summary": "",
+        })
+        assert {"MRVL", "NVDA"} <= set(tags)
+
+    def test_an_article_naming_nobody_keeps_only_its_provenance(self):
+        from swing.ingest.normalize import resolve_tickers
+
+        tags = resolve_tickers({
+            "raw": {"ticker": "TTWO"},
+            "source": "sec-edgar",
+            "headline": "TTWO 8-K — Item 5.02",
+            "summary": "",
+        })
+        assert tags == ["TTWO"]
