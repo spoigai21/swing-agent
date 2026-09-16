@@ -87,3 +87,17 @@ def test_scheduled_attribution_spends_quota_only_on_recent_swings():
     from swing.interface import batch
 
     assert "s.d >=" in inspect.getsource(batch._attribute)
+
+
+class TestQuotaLeavesRoomForQuestions:
+    """The scheduler and the user draw on ONE 20-request daily budget."""
+
+    def test_scheduled_work_never_consumes_the_whole_day(self):
+        assert (s.NIGHTLY_PLACEBO_CASES + s.DAILY_ATTRIBUTIONS
+                + s.INTERACTIVE_RESERVE) <= s.DAILY_MODEL_QUOTA
+
+    def test_a_reserve_is_actually_held_back(self):
+        # Regression: placebo 17 + daily 3 == 20 exactly, so by breakfast every
+        # live question answered `model_unavailable`.
+        assert s.INTERACTIVE_RESERVE >= 3
+        assert s.NIGHTLY_PLACEBO_CASES < s.DAILY_MODEL_QUOTA - s.DAILY_ATTRIBUTIONS

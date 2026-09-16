@@ -36,7 +36,15 @@ PT = ZoneInfo("America/Los_Angeles")
 DAILY_AT_ET = time(16, 45)          # the daily bar has settled by then
 PLACEBO_AT_PT = time(0, 30)         # Gemini free-tier quotas reset at midnight Pacific
 DAILY_ATTRIBUTIONS = 3
-NIGHTLY_PLACEBO_CASES = 17
+DAILY_MODEL_QUOTA = 20              # free-tier Gemini, per model per day (agent/llm.py)
+INTERACTIVE_RESERVE = 5             # a question YOU ask must never find the quota gone
+# Gate 4 gets what is left after the daily batch and the interactive reserve.
+# This was 17, which with DAILY_ATTRIBUTIONS came to exactly the 20-request day
+# and starved every live question: the placebo batch fires at 00:30 PT, so the
+# whole budget was spent on evaluation before breakfast and `swing` could only
+# answer `model_unavailable`. Gate 4 is quota-bound either way; being asked a
+# question and having nothing left is the worse failure.
+NIGHTLY_PLACEBO_CASES = DAILY_MODEL_QUOTA - DAILY_ATTRIBUTIONS - INTERACTIVE_RESERVE
 GATE4_CASES = 200                   # agent-plan.md 4.3
 
 
