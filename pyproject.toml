@@ -20,7 +20,8 @@ dependencies = [
 # Heavy/ML deps are opt-in so `swing coverage` stays fast and Step 0-1 do not
 # pull a ~2GB torch download. Install with: pip install -e ".[full]"
 [project.optional-dependencies]
-data = ["numpy>=1.26,<3", "pandas>=2.2", "pyarrow>=16.0", "yfinance>=0.2.40", "finnhub-python>=2.4"]
+data = ["numpy>=1.26,<3", "pandas>=2.2", "pyarrow>=16.0", "yfinance>=0.2.40", "finnhub-python>=2.4",
+        "google-cloud-bigquery>=3.25"]
 ml = ["torch>=2.4", "transformers>=4.44", "sentence-transformers>=3.0", "lightgbm>=4.3",
       "scikit-learn>=1.5", "datasketch>=1.6"]
 llm = ["langgraph>=1.0", "langchain>=1.0", "langchain-core>=1.0",

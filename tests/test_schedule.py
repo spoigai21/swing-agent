@@ -71,6 +71,16 @@ def test_the_collector_runs_both_jobs():
     assert {"scheduled-daily", "scheduled-placebo"} <= names
 
 
+def test_every_source_has_a_collector_job():
+    # A job referencing a module the collector never imported raises NameError
+    # at startup, and the whole collector fails to start.
+    from swing.ingest.collector import build_jobs
+
+    names = {j.name for j in build_jobs()}
+    assert {"sec-edgar", "sec-edgar-text", "finnhub-news", "analyst-ratings",
+            "gdelt", "normalize", "health-check"} <= names
+
+
 def test_scheduled_attribution_spends_quota_only_on_recent_swings():
     import inspect
 

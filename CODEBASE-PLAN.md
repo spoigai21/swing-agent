@@ -1511,3 +1511,42 @@ hit already ranks in the top 10 and no miss was ranked low.
 
 `swing metrics` now pools dev and held-out labels; report the held-out figure
 when judging the gate.
+
+### 16.9 GDELT: wire copy, and what it costs
+
+Gate 2's misses were never ranking — every hit lands top-10, nothing ranked low.
+They were missing sources: moves driven by a WSJ scoop or a Bloomberg report that
+no free API carries. GDELT indexes those (headline, publisher, URL, the time it
+saw the story, never the body), which is exactly what the pre/post-move split
+needs and all retrieval ever used.
+
+Access is BigQuery's public dataset via a service account. Two things about it
+are load-bearing:
+
+**Billing is bytes SCANNED, not rows returned.** One window over
+`gdelt-bq.gdeltv2.gkg_partitioned` scans ~0.4 GB against a 1 TB/month free tier,
+and `_PARTITIONTIME` bounds every query here — without it a single query scans
+the whole table. The first cut ran one query per ticker per window and would
+have billed ~190 GB/day once the collector picked it up, exhausting the free tier
+in five days and then charging the user. Dry runs are free and return exact byte
+counts; they showed a 12-ticker query and a 1-ticker query scan the *same*
+0.40 GB, because the organisation filter costs nothing. So: one query per pass,
+never per ticker. The collector polls every 4h (~72 GB/month), and
+`gdelt.affordable()` is a hard backstop that refuses to query once the month
+passes `gdelt.monthly_budget_gb` (700). Every query records its bytes in
+`data/gdelt_usage.json`, including the ones that return nothing — a month of
+empty queries costs exactly as much as a month of full ones.
+
+**One query per ticker also lost evidence.** `insert_many` dedupes on URL and
+`normalize.resolve_tickers` treats `raw["ticker"]` as one authoritative company,
+so a story naming two watchlist companies was claimed by whichever ticker queried
+first and the second never saw it. GDELT rows now carry `raw["feed_tickers"]` —
+a list, resolved from the row's own organisation list — so both companies get it.
+The 1,044 rows written before this was understood were deleted rather than
+re-tagged: the organisation list that proves which companies a story named was
+never stored, so there was nothing to re-derive the tags from.
+
+⚠️ GDELT's `DATE` is when it SAW the article, within 15 minutes of publication.
+Close enough to place a story before or after a move, not to the second like an
+EDGAR acceptance time. A story that lands after the onset stays post-move
+evidence and does not become a cause.

@@ -27,6 +27,10 @@ class Settings(BaseSettings):
     gemini_api_key: str = ""
     marketaux_api_key: str = ""
     tiingo_api_key: str = ""
+    # GDELT through BigQuery's public dataset: a service-account JSON path and
+    # the project queries are billed to (free tier: 1 TB scanned per month).
+    google_application_credentials: str = ""
+    google_cloud_project: str = ""
     attribution_model: str = "gemini-3.5-flash"
 
     poll_jitter_pct: float = Field(default=0.1, ge=0.0, le=0.5)

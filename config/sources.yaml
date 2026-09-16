@@ -265,3 +265,34 @@ marketaux:
   enabled: false
   reason: "1/15 articles survive tiering; zero tier-2 sources; duplicates CNBC RSS"
   on_demand_only: true
+
+# ---------------------------------------------------------------------------
+# GDELT (BigQuery public dataset gdelt-bq.gdeltv2). Free, timestamped to 15
+# minutes in UTC, and it indexes the outlets this stack otherwise cannot reach:
+# Reuters, Bloomberg, WSJ and the FT. It carries the headline, the publisher
+# domain and the URL — never the body — which is exactly what timing evidence
+# needs (data-sources.md C.1).
+#
+# Only these domains are ingested; anything else GDELT indexes is ignored
+# rather than tiered by guesswork. The tier is the publisher's, as everywhere
+# else (publisher_tiers above).
+# ---------------------------------------------------------------------------
+gdelt:
+  # BigQuery bills bytes SCANNED against a 1 TB/month free tier. One pass
+  # scans ~0.4 GB; ingest/gdelt.py refuses to query past this ceiling.
+  monthly_budget_gb: 700
+  dataset: "gdelt-bq.gdeltv2.gkg_partitioned"
+  domains:
+    reuters.com: reuters
+    bloomberg.com: bloomberg
+    wsj.com: wsj
+    ft.com: ft
+    cnbc.com: cnbc
+    marketwatch.com: marketwatch
+    barrons.com: barrons
+    apnews.com: ap
+    theinformation.com: "the information"
+    axios.com: axios
+    techcrunch.com: techcrunch
+    theverge.com: theverge
+    arstechnica.com: arstechnica

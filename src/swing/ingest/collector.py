@@ -18,7 +18,7 @@ from pathlib import Path
 
 from swing.common import logging as log
 from swing.common.settings import REPO_ROOT, get_settings
-from swing.ingest import analyst, edgar, health, news_finnhub, news_rss, normalize
+from swing.ingest import analyst, edgar, gdelt, health, news_finnhub, news_rss, normalize
 from swing.ingest.config import edgar_config, feeds
 
 logger = log.get("collector")
@@ -73,6 +73,11 @@ def build_jobs() -> list[Job]:
     # Broker upgrades, downgrades and price targets, timestamped to the second.
     jobs.append(Job(name="analyst-ratings", interval=3600.0,
                     fn=lambda: analyst.poll(since_days=30)))
+    # Reuters/Bloomberg/WSJ/FT headlines via GDELT. One BigQuery query per pass
+    # covering every ticker at once (~0.4 GB scanned). Every 4h, not hourly:
+    # BigQuery bills bytes scanned against a 1 TB/month free allowance, and 4h
+    # keeps this at ~72 GB/month. gdelt.affordable() is the hard backstop.
+    jobs.append(Job(name="gdelt", interval=4 * 3600.0, fn=lambda: gdelt.poll(days=2)))
 
     # Drain articles_raw -> articles continuously. Without this the backlog
     # grows unbounded and nothing downstream (retrieval, clustering) sees new

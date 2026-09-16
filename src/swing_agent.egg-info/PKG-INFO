@@ -20,6 +20,7 @@ Requires-Dist: pandas>=2.2; extra == "data"
 Requires-Dist: pyarrow>=16.0; extra == "data"
 Requires-Dist: yfinance>=0.2.40; extra == "data"
 Requires-Dist: finnhub-python>=2.4; extra == "data"
+Requires-Dist: google-cloud-bigquery>=3.25; extra == "data"
 Provides-Extra: ml
 Requires-Dist: torch>=2.4; extra == "ml"
 Requires-Dist: transformers>=4.44; extra == "ml"
