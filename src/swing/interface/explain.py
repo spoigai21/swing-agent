@@ -276,8 +276,12 @@ def _refresh_news(ticker: str, d: date) -> None:
 
 def _reusable_attribution(swing_id: int) -> dict | None:
     """A stored answer built from exactly the evidence we would pass now, by the
-    same model, prompt and config. The model runs at temperature 0, so asking
-    again would spend quota to get the same answer."""
+    same model, prompt and config.
+
+    ⚠️ This is a QUOTA CACHE, not a determinism shortcut. Gemini 3.x ignores
+    temperature, so asking again would spend one of 20 daily requests to get a
+    possibly differently-worded answer — reuse keeps the answer stable for the
+    same evidence, which is the behaviour you want anyway."""
     from swing.common.versioning import config_hash, model_id, prompt_version
     from swing.ingest.config import thresholds
     from swing.store.session import connect

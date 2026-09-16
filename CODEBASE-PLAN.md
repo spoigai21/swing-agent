@@ -1694,3 +1694,39 @@ This supersedes the single `recall@10 >= 0.80` mark in Step 4, and reconciles
 the plan's 4.2 table (`> 0.85`) with the harness, which had drifted to `>= 0.80`.
 The 0.85 survives as the target for the covered subset, which is what it always
 should have measured.
+
+### 16.14 The model ignores temperature, so "deterministic" was never true
+
+Running a live question surfaced a UserWarning: `Model 'gemini-3.6-flash' uses
+fixed sampling defaults; the sampling parameter(s) temperature will be ignored.`
+
+Gemini 3.x Flash ignores `temperature`, `top_p` and `top_k` — silently, apart
+from that warning — and Google has said later models will reject them with HTTP
+400. Two claims in this codebase rested on the parameter working:
+
+* `agent/llm.py`: "temperature=0 is NOT optional: the Phase 4 harness reruns the
+  same placebo cases after every prompt change, and with sampling noise you
+  cannot tell whether a metric moved because of your edit."
+* `interface/explain.py`: attribution reuse was justified because "the model
+  runs at temperature 0, so asking again would spend quota to get the same
+  answer."
+
+Both are now false, and the honest consequences are:
+
+1. **Repeated questions can differ**, in wording and occasionally in verdict.
+   `_reusable_attribution` is still right to exist, but as a QUOTA CACHE that
+   also keeps the answer stable for the same evidence — not as a shortcut around
+   a determinism the provider guarantees.
+2. **Gate 4's confabulation rate carries sampling noise.** A small movement
+   between runs is not necessarily a real change — precisely what agent-plan.md
+   3.4 wanted temperature=0 to rule out. The 200-case sample size is doing more
+   work than assumed, and a tiny drift in the rate should not be read as signal.
+
+The parameter is removed (sending it buys nothing and breaks on future models).
+Output SHAPE is still pinned by constrained decoding against the Attribution
+schema; the documented lever for steadier content is now `thinking_level` plus
+the response schema, not sampling. A test asserts no sampling parameter is sent.
+
+⚠️ This is a good argument for pinning an exact model string rather than a
+floating alias: the behaviour changed underneath the code, and only a warning
+printed to stderr during a live run revealed it.

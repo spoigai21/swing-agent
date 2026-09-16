@@ -173,3 +173,19 @@ def test_failed_model_call_is_not_stored_as_a_verdict(monkeypatch):
 
     monkeypatch.setattr(session, "connect", lambda *a, **k: pytest.fail("must not write"))
     assert nodes.persist({"attribution": object(), "verdict_reason": "llm_error"}) == {}
+
+
+def test_no_sampling_parameters_are_sent_to_gemini():
+    """Gemini 3.x ignores temperature/top_p/top_k and later models 400 on them.
+
+    Passing them also made the code claim a determinism it never had: repeated
+    questions can be worded differently, so attribution reuse is a quota cache.
+    """
+    import inspect
+
+    from swing.agent import llm
+
+    src = inspect.getsource(llm.get_llm)
+    body = src.split('"""')[-1]          # ignore the docstring, which explains why
+    for param in ("temperature=", "top_p=", "top_k="):
+        assert param not in body, f"{param} is ignored by Gemini 3.x; do not send it"

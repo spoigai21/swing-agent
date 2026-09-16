@@ -54,12 +54,24 @@ def invoke_with_retry(runnable, prompt: str):
     return runnable.invoke(prompt)
 
 
-def get_llm(temperature: float = 0.0, **kwargs: Any):
+def get_llm(**kwargs: Any):
     """The raw chat model.
 
-    temperature=0 is NOT optional: the Phase 4 harness reruns the same placebo
-    cases after every prompt change, and with sampling noise you cannot tell
-    whether a metric moved because of your edit. agent-plan.md 3.4.
+    ⚠️ This used to pass temperature=0 and claim determinism. Gemini 3.x Flash
+    IGNORES temperature, top_p and top_k — silently, apart from a UserWarning —
+    and Google has said later models will reject them with HTTP 400. So the
+    parameter is gone, and the guarantee it implied never existed here:
+
+    * repeated questions can return DIFFERENT wording, and occasionally a
+      different verdict. `explain._reusable_attribution` is a quota cache, not a
+      determinism shortcut.
+    * the Gate 4 confabulation rate carries sampling noise. A small move between
+      runs is not necessarily a real change, which is exactly what agent-plan.md
+      3.4 wanted temperature=0 to rule out.
+
+    Output shape is still pinned by constrained decoding (`get_attributor`), and
+    the documented lever for steadier output is now `thinking_level` plus the
+    response schema, not sampling parameters.
     """
     from langchain_google_genai import ChatGoogleGenerativeAI
 
@@ -72,7 +84,7 @@ def get_llm(temperature: float = 0.0, **kwargs: Any):
     # explicitly or construction fails with a misleading "API key required".
     return ChatGoogleGenerativeAI(
         model=model,
-        temperature=temperature,
+        # No temperature/top_p/top_k: ignored by Gemini 3.x, HTTP 400 later.
         google_api_key=settings.gemini_api_key,
         # ⚠️ The client defaults to NO timeout and 6 retries. On 2026-09-14 the
         # pinned model stopped answering and a question hung indefinitely
@@ -88,12 +100,13 @@ def get_llm(temperature: float = 0.0, **kwargs: Any):
     )
 
 
-def get_attributor(temperature: float = 0.0):
+def get_attributor():
     """The model bound to the Attribution schema via constrained decoding.
 
     Nested schema verified working 2026-08-31 (see agent/schema.py); the flat
-    fallback is not used.
+    fallback is not used. Constrained decoding pins the SHAPE of the answer; it
+    does not make the content reproducible — see get_llm on sampling.
     """
     from swing.agent.schema import Attribution
 
-    return get_llm(temperature=temperature).with_structured_output(Attribution)
+    return get_llm().with_structured_output(Attribution)
