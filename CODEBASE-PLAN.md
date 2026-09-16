@@ -1599,3 +1599,33 @@ The remaining misses are mostly not ranking failures either: #226's answer key
 itself records no company-specific news, #329 and #376 are macro (a CPI print,
 oil and US-Iran tensions), and #265 is a thematic sector rebound with no discrete
 story. Those need a different mechanism than more sources.
+
+### 16.11 Where the remaining 11 misses actually live
+
+Probing each miss for its catalyst's keywords across the whole corpus (not just
+the swing's retrieval tickers) separates two failures that need opposite fixes:
+
+**Source gaps — the story is in no source at all (5 of 8 probed):** #248 (XConn /
+CXL), #265 (DRAM/HBM pricing), #293 (Gemini 3 / TPUs), #331 (Snapdragon), #374
+(Gemini 3 launch). No ranking, window or config change can retrieve an article
+the corpus does not contain. Only new sources move these.
+
+**Retrieval gap — the story is in the corpus but unreachable (1):** #443 TSLA.
+TechCrunch's "Nvidia launches Alpamayo, open AI models that allow autonomous
+[driving]" sits in the pre-move window tagged NVDA, but TSLA's `related` list is
+`[RIVN, GM, F]` and omits NVDA, so retrieval never admits it.
+
+⚠️ **This is not a licence to add NVDA to TSLA's related list.** That edit would
+tune configuration on the held-out set, which turns the held-out set into a
+second dev set and destroys the only unbiased estimate here — the exact failure
+the 0.67 dev vs 0.41 held-out gap already exposed. If TSLA->NVDA is right, it is
+right on economic grounds (Tesla competes with Nvidia's AV stack), it should be
+argued from priors, and it must be validated on moves that were never inspected.
+The 0.50 recorded in 16.10 stands as the honest number.
+
+**Macro moves are a third category, not a retrieval bug:** #376 (US-Iran, Brent
+toward $100) and #329 (a CPI print) have plenty of on-topic articles in the
+corpus, all tagged to other companies. A market-wide catalyst has no
+company-specific story to retrieve, and the residual decomposition already
+separates market and sector components. Attributing these needs a mechanism that
+cites the factor, not a search that finds a headline.
