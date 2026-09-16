@@ -1950,3 +1950,24 @@ Alphabet's news is outside its retrieval set. ⚠️ Adding GOOGL there would be
 tuning configuration on a labelled case — the same refusal as TSLA->NVDA in
 16.11. If that edge is right it is right on economic grounds and must be
 validated on moves nobody has inspected.
+
+### 16.22 Which Gate 2 number is authoritative now
+
+Three artifacts state a Gate 2 result and they no longer agree, because the
+retag and cluster rebuild in 16.21 came after two of them:
+
+| artifact | when scored | status |
+|---|---|---|
+| `matches_heldout_2026-09-16_gdelt.json` (11/22) | before the retag | snapshot, now understates |
+| `matches_2026-09-16_gdelt_dev.json` (23/33) | before the retag | snapshot, now understates |
+| `swing metrics` (coverage 0.709, covered 0.974, blind 0.691) | live | **authoritative** |
+
+The harness is the one to quote. It recomputes from the annotations and the
+CURRENT clusters every time it runs, over the same 68 researched swings, so it
+cannot go stale the way a hand-scored JSON does. The match files stay as dated
+records of what a human-equivalent scorer saw on that clustering — useful for
+tracing why a verdict changed, not for quoting a number.
+
+⚠️ Do not re-derive a headline figure by adding up a match file. If the two ever
+need to agree, re-score the answer key AFTER the clustering it is meant to
+describe, and date the filename accordingly.
