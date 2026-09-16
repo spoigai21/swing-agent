@@ -100,3 +100,52 @@ class TestEvalVersioning:
         from swing.common.versioning import config_hash, eval_hash
 
         assert eval_hash() != config_hash()
+
+
+class TestATransientBlipDoesNotEndTheNight:
+    """2026-09-16 lost 3 of 12 cases to one '503 UNAVAILABLE ... high demand'.
+
+    At ~12 cases a night against a 200-case gate, abandoning the batch on a
+    single hiccup costs a quarter of the night. A dead model or a spent quota
+    still has to stop it quickly, so the rule is CONSECUTIVE failures.
+    """
+
+    def _setup(self, monkeypatch, outcomes):
+        import swing.agent.graph as graph
+        import swing.eval.placebo as pb
+
+        cases = [pb.PlaceboCase(swing_id=i, ticker="NVDA", donor_swing_id=100 + i)
+                 for i in range(len(outcomes))]
+        monkeypatch.setattr(pb, "build_cases", lambda n, seed: cases)
+        monkeypatch.setattr(pb, "already_run", lambda seed: set())
+        monkeypatch.setattr(pb, "cached_clusters", lambda sid: {})
+        monkeypatch.setattr(pb, "relabel_timing", lambda clusters, sid: clusters)
+        monkeypatch.setattr(pb, "eval_hash", lambda: "test")
+
+        seen = []
+
+        def fake_attribute(swing_id, **kwargs):
+            seen.append(swing_id)
+            if outcomes[swing_id] == "fail":
+                return {"verdict_reason": "llm_error"}
+            return {"attribution": type("A", (), {"verdict": "unexplained",
+                                                  "candidates": []})()}
+
+        monkeypatch.setattr(graph, "attribute_swing", fake_attribute)
+        return seen
+
+    def test_one_failure_is_skipped_and_the_batch_continues(self, monkeypatch):
+        seen = self._setup(monkeypatch, ["ok", "fail", "ok", "ok"])
+        from swing.eval.placebo import run
+
+        out = run(n=4, persist=False)
+        assert len(seen) == 4, "the batch must not stop at the single failure"
+        assert out["n"] == 3, "the failed call must not be scored as an abstention"
+
+    def test_consecutive_failures_stop_the_run(self, monkeypatch):
+        seen = self._setup(monkeypatch, ["ok", "fail", "fail", "ok"])
+        from swing.eval.placebo import run
+
+        out = run(n=4, persist=False)
+        assert len(seen) == 3, "a dead model must stop the run promptly"
+        assert out["n"] == 1

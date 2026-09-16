@@ -202,3 +202,55 @@ def test_the_question_path_scopes_the_sec_poll():
 
     assert "tickers=[ticker, *related(ticker)]" in inspect.getsource(explain._refresh_news)
     assert "tickers" in inspect.signature(edgar.poll).parameters
+
+
+class TestDriftDaysAreNotCalledOrdinary:
+    """Detection flags a drift on a CUMULATIVE z over 3-5 days
+    (drift_z_threshold 2.5); explain judges the SINGLE day (z_threshold 2.0).
+    Both are right, and together they let the product say "nothing unusual"
+    about a date that is in the swings table and may already have alerted.
+    MRVL 2026-09-02: 1.2x typical on the day, z=-2.55 across the run.
+    """
+
+    def _patch(self, monkeypatch, row):
+        import contextlib
+
+        import swing.store.session as session
+
+        class _Conn:
+            def execute(self, *a, **k):
+                return self
+
+            def fetchone(self):
+                return row
+
+        @contextlib.contextmanager
+        def _c(*a, **k):
+            yield _Conn()
+
+        monkeypatch.setattr(session, "connect", _c)
+
+    def test_a_day_inside_a_flagged_run_says_so(self, monkeypatch):
+        from datetime import date
+
+        from swing.interface import explain
+
+        self._patch(monkeypatch, {"d": date(2026, 9, 2), "drift_window": 5,
+                                  "total_return": -0.0188, "residual_z": -2.55})
+        out = explain._drift_context("MRVL", date(2026, 9, 2))
+        assert out and "5-day run" in out and "2.6 sigma" in out
+
+    def test_an_ordinary_day_outside_any_run_adds_nothing(self, monkeypatch):
+        from datetime import date
+
+        from swing.interface import explain
+
+        self._patch(monkeypatch, None)
+        assert explain._drift_context("MRVL", date(2026, 9, 2)) is None
+
+    def test_the_normal_day_branch_consults_it(self):
+        import inspect
+
+        from swing.interface import explain
+
+        assert "_drift_context" in inspect.getsource(explain.explain)

@@ -1367,7 +1367,7 @@ there as optimistic until it holds on moves researched afterwards.
 | 1 Split, swings, onset | Same maths; one day at a time for a question | `swings.detect_day` captures intraday and onset for the asked-about day | Passed. The question path does not use drift swings |
 | 2 Retrieval | Find the real cause in the top 10, measured on the answer key | GDELT wire copy added (§16.9); the gate is split into coverage and covered-recall (§16.13) | **Split.** Ranking **passes**: recall@10 = 0.97 (n=31) once the catalyst is in the corpus. Coverage **fails**: 0.56 — 24 of 25 misses are missing evidence, not bad ranking. Overall 0.545 vs the derived 0.68. §16.13 |
 | 3 Agent | Explain from own and related news; abstain in code | `attribution_v3` on `gemini-3.6-flash`; guards unchanged; model calls time out and retry transient errors | **Passed 5/5 on v3** (v2 failed 4/5), §16.6 |
-| 4 Evaluation | Confabulation < 10% over 200 placebo cases on the current version | Placebo restarted on the new version (config + prompt changed); failed calls no longer scored. **17 cases now run nightly** from the collector (00:30 PT, after the quota reset), stopping at 200 | **Open** until 200 accumulate (~12 nights). Adding GDELT moved `config_hash`, correctly resetting the count to 0/200 (§16.12) |
+| 4 Evaluation | Confabulation < 10% over 200 placebo cases on the current version | Placebo restarted on the new version (config + prompt changed); failed calls no longer scored. **12 cases now run nightly** (17 starved live questions, §16.16) from the collector (00:30 PT, after the quota reset), stopping at 200 | **Open** until 200 accumulate (~12 nights). Adding GDELT moved `config_hash`, correctly resetting the count to 0/200 (§16.12) |
 | 5 ML | Unchanged | Not started | Blocked on Gates 2 and 4 |
 | 6 Interface | One question in, one answer out; alerts on big moves | Built. The collector now runs the post-close batch (up to 3 attributions, last 3 days only) and alerts every weekday at 16:45 ET (`interface/schedule.py`); launchd/cron cannot read `~/Desktop`, the running collector can | End-to-end live runs verified; scheduled runs start the next weekday |
 
@@ -1754,3 +1754,37 @@ collector and every backfill still call it unfiltered.
 ⚠️ The Finnhub fan-out looks like the obvious target (5 sequential calls) and is
 not worth touching: 4.67s total, and parallelising it would add concurrency for
 ~3s. Gemini's ~27s is the floor and cannot be tuned from here.
+
+### 16.16 Two failures found by actually running the thing
+
+**The scheduler was spending the whole day's quota on itself.**
+`NIGHTLY_PLACEBO_CASES` (17) + `DAILY_ATTRIBUTIONS` (3) came to exactly the
+free-tier 20 requests/day, and the placebo batch fires at 00:30 PT. So by
+breakfast the budget was gone to evaluation and every live question answered
+`model_unavailable` — the one failure that matters when the point of the system
+is asking it things. Now 12 + 3 with a 5-request `INTERACTIVE_RESERVE`. Gate 4
+takes ~17 nights instead of ~12; being asked a question and having nothing left
+is the worse outcome.
+
+**One transient blip abandoned a quarter of the night.** 2026-09-16 scored 9 of
+12 cases and stopped:
+
+    GoogleAPIError: 503 UNAVAILABLE. 'This model is currently experiencing high demand.'
+
+`placebo.run` broke out of the loop on any `llm_error`, with a comment assuming
+the cause was "usually the daily quota". Stopping is right for a dead model or a
+spent quota; it is wrong for a hiccup. Failures must now be CONSECUTIVE
+(`MAX_CONSECUTIVE_FAILURES = 2`) to end the run — an isolated failure skips that
+case and carries on. The case is still never scored: a request that never
+reached the model is not an abstention.
+
+**A day can be ordinary and still sit inside a flagged run.** `swings` detects
+drift on a CUMULATIVE z over 3-5 days (`drift_z_threshold` 2.5); `explain`
+judges the SINGLE day (`z_threshold` 2.0). MRVL 2026-09-02 is in the swings
+table at z=-2.55 and was 1.2x typical on the day, so asking about it returned
+"nothing unusual" about a date the system had itself flagged and could have
+alerted on. `_drift_context` now appends the run's cumulative return and sigma
+to the normal-day answer. It costs no model call — context, not attribution.
+
+⚠️ All three were invisible to the test suite and to every metric. They surfaced
+only from running the product end to end and reading the output and the logs.

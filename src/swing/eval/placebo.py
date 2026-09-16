@@ -144,6 +144,11 @@ def already_run(seed: int) -> set[int]:
     return {r["swing_id"] for r in rows}
 
 
+# One transient blip must not end the night; a dead model or an exhausted quota
+# must end it quickly. Failures have to be CONSECUTIVE to stop the run.
+MAX_CONSECUTIVE_FAILURES = 2
+
+
 def run(n: int = 30, seed: int = 0, persist: bool = True,
         resume: bool = True) -> dict:
     """Run up to n placebo cases, skipping any already scored on this version."""
@@ -163,17 +168,29 @@ def run(n: int = 30, seed: int = 0, persist: bool = True,
 
     confabulated = 0
     scored: list[PlaceboCase] = []
+    failures = 0
     for c in cases:
         donor = relabel_timing(cached_clusters(c.donor_swing_id), c.swing_id)
         out = attribute_swing(c.swing_id, run_kind="placebo", persist=persist,
                               cluster_override=donor,
                               verdict_reason_tag=f"placebo:{eval_hash()}")
         if out.get("verdict_reason") == "llm_error":
-            # A failed call (usually the daily quota) is not an abstention.
-            # Counting it as one scored requests that never reached the model
-            # as perfect behaviour.
-            logger.warning("placebo stopped at swing %s: model call failed", c.swing_id)
-            break
+            # A failed call is not an abstention: scoring a request that never
+            # reached the model as perfect behaviour would flatter Gate 4.
+            # ⚠️ But do NOT end the night on one failure. 2026-09-16 lost 3 of
+            # 12 cases to a single "503 UNAVAILABLE ... high demand" blip, and
+            # at ~12 cases a night that is a quarter of the batch to a hiccup.
+            # Skip the case and carry on; stop only once failures are
+            # CONSECUTIVE, which is what a dead model or a spent quota looks
+            # like.
+            failures += 1
+            logger.warning("placebo: model call failed for swing %s (%d in a row)",
+                           c.swing_id, failures)
+            if failures >= MAX_CONSECUTIVE_FAILURES:
+                logger.warning("placebo stopping after %d consecutive failures", failures)
+                break
+            continue
+        failures = 0
         attr = out.get("attribution")
         c.verdict = attr.verdict if attr else "error"
         c.n_candidates = len(attr.candidates) if attr else 0

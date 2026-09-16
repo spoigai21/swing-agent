@@ -189,11 +189,42 @@ def explain(ticker: str, day: date | None = None, *, now: datetime | None = None
     lines = [header(dec, entity.sector_etf)]
     if abs(dec.residual_z) < float(thresholds()["swings"]["z_threshold"]):
         lines.append(normal_day(dec, entity.sector_etf))
+        if context := _drift_context(ticker, dec.d):
+            lines.append(context)
     else:
         lines.append(_unusual_day(entity, dec, say))
     if live and day is None:
         lines.append(live)
     return "\n".join(lines)
+
+
+def _drift_context(ticker: str, d: date) -> str | None:
+    """A day can be ordinary on its own and still sit inside a flagged drift.
+
+    Detection uses a CUMULATIVE z over 3-5 days (`drift_z_threshold`, 2.5);
+    this function's caller uses the SINGLE day (`z_threshold`, 2.0). Both are
+    right, and together they let the product say "nothing unusual" about a date
+    that is in the swings table and may already have fired an alert — which
+    reads as the system contradicting itself. MRVL 2026-09-02: ordinary alone
+    at 1.2x typical, but the end of a drift at z=-2.55.
+
+    Costs no model call: this is context on the normal-day answer, not an
+    attribution.
+    """
+    from swing.store.session import connect
+
+    with connect() as conn:
+        row = conn.execute(
+            "SELECT d, drift_window, total_return, residual_z FROM swings "
+            "WHERE ticker = %s AND kind = 'drift' AND drift_window IS NOT NULL "
+            "  AND %s BETWEEN d - (drift_window - 1) AND d "
+            "ORDER BY abs(residual_z) DESC LIMIT 1",
+            (ticker, d)).fetchone()
+    if not row:
+        return None
+    return (f"\nWorth knowing: this day sits inside a flagged {row['drift_window']}-day "
+            f"run ending {_day(row['d'])} — {row['total_return']:+.1%} cumulative, "
+            f"{abs(row['residual_z']):.1f} sigma. Ordinary day by day; the run is not.")
 
 
 def _unusual_day(entity, dec, say: Callable[[str], None]) -> str:
