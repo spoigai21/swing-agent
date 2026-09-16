@@ -24,6 +24,13 @@ def coverage_data() -> dict[str, Any]:
         by_source = conn.execute(
             "SELECT source, count(*) n FROM articles_raw GROUP BY source ORDER BY n DESC"
         ).fetchall()
+        # What SURVIVED tiering. articles_raw is the archive; tier-4 aggregators
+        # are stored but never become evidence, and counting them made coverage
+        # read 6x larger than the corpus an answer can actually cite.
+        usable = conn.execute("SELECT count(*) n FROM articles").fetchone()["n"]
+        usable_by_source = {
+            r["source"]: r["n"] for r in conn.execute(
+                "SELECT source, count(*) n FROM articles GROUP BY source").fetchall()}
         has_attr = conn.execute(
             "SELECT to_regclass('public.attributions') IS NOT NULL AS ok"
         ).fetchone()["ok"]
@@ -36,20 +43,28 @@ def coverage_data() -> dict[str, Any]:
         "articles_from": arts["lo"],
         "articles_to": arts["hi"],
         "sources": [(r["source"], r["n"]) for r in by_source],
+        "usable": usable,
+        "usable_by_source": usable_by_source,
         "attributions": attributions,
     }
 
 
 def coverage() -> int:
     d = coverage_data()
+    usable = d.get("usable", 0)
     print(
         f"articles from {d['articles_from']} to {d['articles_to']} · "
-        f"{d['articles']:,} articles · {len(d['sources'])} sources · "
-        f"{d['attributions']} attributions"
+        f"{d['articles']:,} collected, {usable:,} usable as evidence · "
+        f"{len(d['sources'])} sources · {d['attributions']} attributions"
     )
     print()
-    for source, n in d["sources"]:
-        print(f"  {source:<16} {n:>6,}")
+    print(f"  {'source':<16} {'collected':>10} {'usable':>8}")
+    by_usable = d.get("usable_by_source", {})
+    for source, n in d["sources"][:12]:
+        print(f"  {source:<16} {n:>10,} {by_usable.get(source, 0):>8,}")
+    dropped = d["articles"] - usable
+    print()
+    print(f"  {dropped:,} collected articles are tier-4 aggregators: stored, never cited.")
     print()
     print(f"  {len(d['tickers'])} tickers: {', '.join(d['tickers'])}")
     return 0
