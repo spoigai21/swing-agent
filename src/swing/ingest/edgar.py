@@ -115,11 +115,17 @@ def _save_cursor(cik: str, ticker: str, accession: str) -> None:
         )
 
 
-def poll(first_run_limit: int = 40) -> int:
+def poll(first_run_limit: int = 40, tickers: list[str] | None = None) -> int:
     """Poll watchlist and related-company CIKs. Returns the number of new filings.
 
     Related companies are included because another company's 8-K (a rival's
     earnings, a customer's capex guidance) is often what moves a watchlist stock.
+
+    `tickers` narrows the poll to those companies and is what the interactive
+    path passes. Unfiltered this makes one HTTP request per CIK -- ~11s of a
+    question's latency, re-polling ~33 companies the question is not about,
+    while the collector already polls them all every 600s. The collector and
+    every backfill keep calling it unfiltered.
     """
     cfg = edgar_config()
     wanted = set(cfg.get("forms") or ["8-K"])
@@ -129,7 +135,10 @@ def poll(first_run_limit: int = 40) -> int:
     from swing.ingest.config import stocks
 
     watchlist = set(stocks())
+    scope = {s.upper() for s in tickers} if tickers else None
     for ticker, cik in edgar_targets().items():
+        if scope is not None and ticker.upper() not in scope:
+            continue
         # Another company's EVENTS matter (8-K; 6-K for foreign filers). Its
         # 10-Q/10-K restates the quarter its 8-K already announced, and in
         # retrieval it crowded out the stock's own news.

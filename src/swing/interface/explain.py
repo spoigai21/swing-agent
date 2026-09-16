@@ -247,7 +247,9 @@ def _refresh_news(ticker: str, d: date) -> None:
 
     start, end = d - timedelta(days=3), d + timedelta(days=1)
     since = datetime.combine(d - timedelta(days=7), time(), tzinfo=UTC)
-    jobs = [("SEC filings", edgar.poll),
+    # Scoped to this question's companies: unfiltered, EDGAR is one request per
+    # CIK and dominated question latency. The collector still polls them all.
+    jobs = [("SEC filings", lambda: edgar.poll(tickers=[ticker, *related(ticker)])),
             ("analyst ratings", lambda: analyst.fetch(ticker, since)),
             ("company news", lambda: news_finnhub.fetch(ticker, start, end))]
     jobs += [(f"{t} news", lambda t=t: news_finnhub.fetch(t, start, end))

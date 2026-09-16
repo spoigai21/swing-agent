@@ -1730,3 +1730,27 @@ the response schema, not sampling. A test asserts no sampling parameter is sent.
 ⚠️ This is a good argument for pinning an exact model string rather than a
 floating alias: the behaviour changed underneath the code, and only a warning
 printed to stderr during a live run revealed it.
+
+### 16.15 Question latency: where the 44 seconds went
+
+Timed per job on a real question (TTWO, 2026-09-15):
+
+| job | time |
+|---|---|
+| `edgar.poll` (all 33 CIKs) | **11.26s** |
+| finnhub, own + 4 related (5 calls) | 4.67s |
+| analyst.fetch | 0.72s |
+| gdelt.refresh (window already stored) | 0.02s |
+| normalize_all | 0.01s |
+| Gemini itself | ~27s |
+
+The refresh was dominated by one job, and not the one the shape of the code
+suggests: EDGAR makes one HTTP request per CIK, so every question re-polled all
+33 watchlist and related companies — while the collector already polls them all
+every 600s. `edgar.poll(tickers=...)` now narrows the interactive path to the
+question's own companies: **11.26s -> 2.42s, 8.84s saved per question.** The
+collector and every backfill still call it unfiltered.
+
+⚠️ The Finnhub fan-out looks like the obvious target (5 sequential calls) and is
+not worth touching: 4.67s total, and parallelising it would add concurrency for
+~3s. Gemini's ~27s is the floor and cannot be tuned from here.

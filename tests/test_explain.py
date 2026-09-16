@@ -189,3 +189,16 @@ def test_no_sampling_parameters_are_sent_to_gemini():
     body = src.split('"""')[-1]          # ignore the docstring, which explains why
     for param in ("temperature=", "top_p=", "top_k="):
         assert param not in body, f"{param} is ignored by Gemini 3.x; do not send it"
+
+
+def test_the_question_path_scopes_the_sec_poll():
+    """Unfiltered, edgar.poll makes one HTTP request per CIK and was ~11s of a
+    question's latency, re-polling companies the question is not about. The
+    collector still polls everything every 600s, so nothing loses coverage."""
+    import inspect
+
+    from swing.ingest import edgar
+    from swing.interface import explain
+
+    assert "tickers=[ticker, *related(ticker)]" in inspect.getsource(explain._refresh_news)
+    assert "tickers" in inspect.signature(edgar.poll).parameters
