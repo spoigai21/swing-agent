@@ -1629,3 +1629,28 @@ corpus, all tagged to other companies. A market-wide catalyst has no
 company-specific story to retrieve, and the residual decomposition already
 separates market and sector components. Attributing these needs a mechanism that
 cites the factor, not a search that finds a headline.
+
+### 16.12 Adding GDELT reset Gate 4, correctly
+
+`config_hash` covers `sources.yaml` (versioning.HASHED_CONFIGS), so adding the
+`gdelt` block moved it from `c7752274b6693efc` to `3af7f017b0208f39`, and the 15
+placebo cases scored on 2026-09-15 no longer count. Gate 4 reads n=0 again.
+
+**This is the mechanism working, not a defect.** Those 15 cases ran before 3,317
+GDELT articles entered the evidence pool. Pooling them with post-GDELT cases
+would average two different systems and produce a confabulation rate describing
+neither — exactly what agent-plan.md 3.1b exists to prevent. The cost is real and
+worth stating: Gate 4 restarts at 0/200, roughly 12 nights at 17 cases a night,
+because the free-tier quota is 20 Gemini requests/day/model.
+
+⚠️ One edge is over-broad. `config_hash` hashes the WHOLE of sources.yaml, so
+`gdelt.monthly_budget_gb` — a cost-control knob that cannot change what evidence
+the model sees — invalidates accumulated evidence exactly as a publisher-tier
+change would. Narrowing the hash to attribution-relevant keys would stop that,
+but it weakens a deliberate guarantee and must not be done casually: the failure
+it prevents (silently pooling incomparable runs) is far more expensive than a few
+wasted nights. Left as is, recorded here.
+
+Note for anyone re-running the gates: `placebo.cumulative()` returns
+`{"n": 0, "confabulated": 0, "rate": None}` when nothing matches the current
+version tuple. `rate` is None, not 0.0 — formatting it with `:.3f` raises.
