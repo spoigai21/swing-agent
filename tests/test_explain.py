@@ -215,7 +215,7 @@ class TestDriftDaysAreNotCalledOrdinary:
     def _patch(self, monkeypatch, row):
         import contextlib
 
-        import swing.store.session as session
+        from swing.store import session
 
         class _Conn:
             def execute(self, *a, **k):
@@ -238,7 +238,8 @@ class TestDriftDaysAreNotCalledOrdinary:
         self._patch(monkeypatch, {"d": date(2026, 9, 2), "drift_window": 5,
                                   "total_return": -0.0188, "residual_z": -2.55})
         out = explain._drift_context("MRVL", date(2026, 9, 2))
-        assert out and "5-day run" in out and "2.6 sigma" in out
+        assert out
+        assert "5-day run" in out and "-1.9% cumulative" in out and "sigma" in out
 
     def test_an_ordinary_day_outside_any_run_adds_nothing(self, monkeypatch):
         from datetime import date

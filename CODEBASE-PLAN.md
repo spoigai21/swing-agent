@@ -1788,3 +1788,22 @@ to the normal-day answer. It costs no model call — context, not attribution.
 
 ⚠️ All three were invisible to the test suite and to every metric. They surfaced
 only from running the product end to end and reading the output and the logs.
+
+### 16.17 The "verified before commit" gate was not gating
+
+`f783bd4` reached `main` with a failing test and two lint errors, behind a
+command that looked like a guard:
+
+    pytest tests/ -q | tail -2 && ruff check src/ tests/ | tail -1 && git commit ...
+
+A pipeline exits with the status of its LAST command, so `tail` — which always
+succeeds — masked pytest's failure and `&&` happily proceeded. Every
+verify-then-commit chain used this shape; the earlier ones were genuinely green,
+so the hole never showed. Use `set -o pipefail` (or do not pipe the runner) when
+a test run gates anything.
+
+The failure it masked was a bad test, not bad code: the fixture used
+`residual_z = -2.55`, and `f"{abs(-2.55):.1f}"` is `"2.5"` because binary 2.55
+sits just below the decimal, while the real value `-2.5549` prints `"2.6"`. The
+assertion pinned a rounded digit, which tests float representation rather than
+behaviour; it now asserts the stable parts of the sentence.

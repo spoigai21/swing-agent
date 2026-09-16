@@ -111,8 +111,8 @@ class TestATransientBlipDoesNotEndTheNight:
     """
 
     def _setup(self, monkeypatch, outcomes):
-        import swing.agent.graph as graph
-        import swing.eval.placebo as pb
+        from swing.agent import graph
+        from swing.eval import placebo as pb
 
         cases = [pb.PlaceboCase(swing_id=i, ticker="NVDA", donor_swing_id=100 + i)
                  for i in range(len(outcomes))]
