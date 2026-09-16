@@ -101,12 +101,64 @@ class TestRecallIsBlindOnly:
         assert "a.blind" in inspect.getsource(harness.recall_at_k)
 
     def test_recall_passes_at_the_gate_2_mark(self, monkeypatch):
-        # Gate 2 is 0.80. The metric used agent-plan's longer-run 0.85, so a
-        # gate-passing 0.80 printed FAIL.
+        # Gate 2's overall mark is the re-baselined 0.68 (CODEBASE-PLAN 16.13),
+        # the product of the coverage and covered-recall targets.
         _patch(monkeypatch, [{"swing_id": i, "rank": 1} for i in range(4)]
                + [{"swing_id": 9, "rank": None}])
         m = harness.recall_at_k()
         assert m.value == pytest.approx(0.8) and m.passing is True
+
+    def test_overall_recall_fails_below_the_derived_mark(self, monkeypatch):
+        # 0.60 is above the 0.545 we actually score and still must FAIL, so the
+        # gate cannot be quietly retargeted to whatever the system happens to hit.
+        _patch(monkeypatch, [{"swing_id": i, "rank": 1} for i in range(3)]
+               + [{"swing_id": 8, "rank": None}, {"swing_id": 9, "rank": None}])
+        m = harness.recall_at_k()
+        assert m.value == pytest.approx(0.6) and m.passing is False
+
+
+class TestGate2SplitsDataFromSystem:
+    """One number hid two problems: 24 of 25 misses were missing evidence and
+    exactly one was a ranking failure. Coverage and ranking must not mask each
+    other, so each is measured on its own denominator."""
+
+    def test_coverage_counts_an_empty_article_list_as_uncovered(self, monkeypatch):
+        # An annotator names the catalyst in free text even when no article for
+        # it was ever collected; that is a data gap, not a retrieval gap.
+        _patch(monkeypatch, [{"n_articles": 2}, {"n_articles": 0},
+                             {"n_articles": 1}, {"n_articles": 0}])
+        m = harness.catalyst_coverage()
+        assert m.value == pytest.approx(0.5) and m.n == 4 and m.passing is False
+
+    def test_covered_recall_excludes_uncollected_catalysts(self):
+        # The covered metric must filter on true_article_ids, or the archive's
+        # gaps land in the retrieval engine's score.
+        import inspect
+
+        src = inspect.getsource(harness.recall_at_k_covered)
+        assert "cardinality(a.true_article_ids)" in src and "a.blind" in src
+
+    def test_covered_recall_holds_ranking_to_the_higher_bar(self, monkeypatch):
+        # 0.80 passes the overall 0.68 mark but must FAIL the covered 0.85 one:
+        # with the evidence present, failing to rank it is a real defect.
+        _patch(monkeypatch, [{"swing_id": i, "rank": 1} for i in range(4)]
+               + [{"swing_id": 9, "rank": None}])
+        m = harness.recall_at_k_covered()
+        assert m.value == pytest.approx(0.8) and m.passing is False
+
+    def test_the_overall_target_is_the_product_of_the_two(self, monkeypatch):
+        # Derived, not chosen: 0.80 coverage x 0.85 covered-recall = 0.68.
+        _patch(monkeypatch, [{"n_articles": 1}])
+        coverage = float(harness.catalyst_coverage().target.split()[-1])
+        _patch(monkeypatch, [{"swing_id": 1, "rank": 1}])
+        covered = float(harness.recall_at_k_covered().target.split()[-1])
+        overall = float(harness.recall_at_k().target.split()[-1])
+        assert overall == pytest.approx(coverage * covered, abs=0.005)
+
+    def test_report_shows_both_halves(self, monkeypatch):
+        _patch(monkeypatch, [])
+        names = [m.name for m in harness.report()]
+        assert "catalyst coverage" in names and "recall@10 (covered)" in names
 
 
 def _payload(*candidates):

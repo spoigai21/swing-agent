@@ -2,7 +2,9 @@
 
 | metric               | definition                                    | target |
 |----------------------|-----------------------------------------------|--------|
-| retrieval recall@10  | true catalyst cluster in top 10               | > 0.85 |
+| catalyst coverage    | labelled moves whose catalyst is in the corpus | >= 0.80 |
+| recall@10 (covered)  | of those, true catalyst cluster in top 10     | >= 0.85 |
+| retrieval recall@10  | overall: coverage x recall-given-coverage     | >= 0.68 |
 | attribution accuracy | top candidate matches the annotation          | > 0.70 |
 | abstention precision | of `unexplained`, share that truly had none   | > 0.80 |
 | confabulation rate   | of no-catalyst cases, share explained anyway  | < 0.10 |
@@ -53,13 +55,65 @@ def recall_at_k(k: int = 10) -> Metric:
             FROM annotations a
             WHERE a.blind AND NOT a.no_catalyst
             """).fetchall()
-    # Pass mark is Gate 2's 0.80. agent-plan.md 4.2 lists 0.85 as the longer-run
-    # target; showing 0.85 here marked a gate-passing 0.80-0.85 as FAIL.
+    # Re-baselined (CODEBASE-PLAN 16.13). This number is the PRODUCT of two
+    # independent things -- whether the catalyst is in the corpus at all, and
+    # whether retrieval ranks it once it is -- so its target is the product of
+    # their targets, 0.80 x 0.85 = 0.68, never a number picked to pass.
     if not rows:
-        return Metric(f"recall@{k} (blind)", None, 0, ">= 0.80", None)
+        return Metric(f"recall@{k} (blind)", None, 0, ">= 0.68", None)
     hits = sum(1 for r in rows if r["rank"] is not None and r["rank"] <= k)
     v = hits / len(rows)
-    return Metric(f"recall@{k} (blind)", v, len(rows), ">= 0.80", v >= 0.80)
+    return Metric(f"recall@{k} (blind)", v, len(rows), ">= 0.68", v >= 0.68)
+
+
+def catalyst_coverage() -> Metric:
+    """Of labelled moves, the share whose catalyst article is in the corpus AT ALL.
+
+    A DATA metric, not a system one. An annotator records `true_catalyst` as free
+    text even when no article for it was ever collected, leaving
+    `true_article_ids` empty -- so an empty list means "we know the cause and do
+    not hold the story", which no amount of ranking work can fix.
+
+    Kept separate from recall so the two cannot mask each other: a source outage
+    shows up here as falling coverage instead of silently excusing bad ranking,
+    and retuning weights cannot improve this number at all.
+    """
+    with connect() as conn:
+        rows = conn.execute(
+            "SELECT coalesce(cardinality(true_article_ids), 0) AS n_articles "
+            "FROM annotations WHERE blind AND NOT no_catalyst").fetchall()
+    if not rows:
+        return Metric("catalyst coverage", None, 0, ">= 0.80", None)
+    have = sum(1 for r in rows if r["n_articles"])
+    v = have / len(rows)
+    return Metric("catalyst coverage", v, len(rows), ">= 0.80", v >= 0.80)
+
+
+def recall_at_k_covered(k: int = 10) -> Metric:
+    """recall@k over ONLY the moves whose catalyst we actually hold.
+
+    This is the retrieval engine's own score, with the news archive's gaps taken
+    out of the denominator. It is the demanding one: when the evidence is
+    present and retrieval still fails to rank it, that is a real defect with
+    nowhere to hide.
+    """
+    with connect() as conn:
+        rows = conn.execute(
+            """
+            SELECT a.swing_id,
+                   (SELECT min(c.rank) FROM clusters c
+                    JOIN cluster_members m ON m.cluster_id = c.id
+                    WHERE c.swing_id = a.swing_id AND c.timing = 'pre_move'
+                      AND m.article_id = ANY(a.true_article_ids)) AS rank
+            FROM annotations a
+            WHERE a.blind AND NOT a.no_catalyst
+              AND coalesce(cardinality(a.true_article_ids), 0) > 0
+            """).fetchall()
+    if not rows:
+        return Metric(f"recall@{k} (covered)", None, 0, ">= 0.85", None)
+    hits = sum(1 for r in rows if r["rank"] is not None and r["rank"] <= k)
+    v = hits / len(rows)
+    return Metric(f"recall@{k} (covered)", v, len(rows), ">= 0.85", v >= 0.85)
 
 
 def _top_cited(payload: dict | None) -> set[int]:
@@ -185,7 +239,8 @@ def citation_validity() -> Metric:
 
 
 def report() -> list[Metric]:
-    return [recall_at_k(), attribution_accuracy(), abstention_precision(),
+    return [catalyst_coverage(), recall_at_k_covered(), recall_at_k(),
+            attribution_accuracy(), abstention_precision(),
             confabulation_rate(), citation_validity()]
 
 
