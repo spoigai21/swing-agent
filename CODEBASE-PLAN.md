@@ -1550,3 +1550,52 @@ never stored, so there was nothing to re-derive the tags from.
 Close enough to place a story before or after a move, not to the second like an
 EDGAR acceptance time. A story that lands after the onset stays post-move
 evidence and does not become a cause.
+
+### 16.10 Gate 2 after GDELT: 0.41 -> 0.50 held-out, still FAIL
+
+Scored blind on the 32 held-out moves (10 are `no_catalyst`, so 22 are scoreable),
+three scorers working from identical cluster listings, strict judging: a generic
+roundup ("Stocks making the biggest moves premarket", "Live updates") never
+counts as retrieving a catalyst.
+
+| | hits | recall@10 |
+|---|---|---|
+| before GDELT, as recorded | 9/22 | 0.41 |
+| before GDELT, re-judged strictly | 7/22 | 0.32 |
+| after GDELT | **11/22** | **0.50** |
+| target | | 0.80 |
+
+**Four moves flipped not_retrieved -> hit, all from GDELT wire copy:** #220 NVDA
+(CNBC on the stalled OpenAI investment, rank 3 — its URL is itself an answer-key
+source), #276 MU (the UBS price-target call, rank 2, whose coy "this
+semiconductor stock" headline is why it was missed before), #359 AAPL (WWDC Siri
+coverage, rank 4), #472 SBUX (the RBC downgrade, rank 2).
+
+**Two recorded hits were downgraded (#329 QCOM, #374 GOOGL).** These are not data
+regressions — no evidence was lost. The earlier pass credited a generic market
+roundup and a weekly AI video recap as retrieving a CPI print and the Gemini 3
+launch. Re-judged consistently, the honest before/after is 7/22 -> 11/22. The
+recorded 9/22 was slightly optimistic, and it is worth stating plainly rather
+than quietly keeping the flattering baseline.
+
+**Two of the 22 are unwinnable with the current sources.** #426 TTWO and #450
+TSLA have zero articles in their pre-move windows — not a windowing bug (the
+windows compute correctly, spanning Friday's close to Monday's onset for the
+`mixed` swing) but a coverage hole. #426's catalyst was a Forbes article, and
+Forbes is in neither the GDELT domain list nor the RSS feeds, so no window or
+ranking change can retrieve it. The realistic ceiling on this set is 20/22.
+
+⚠️ **What GDELT costs in noise.** It now holds 35% of top-10 pre-move slots on
+the rebuilt swings and all three top slots on five of them, and 77% of its
+(article, ticker) tags have headlines that never name the company — "Mercedes-Benz's
+S-Class Sedan Rollout" ranks first for NVDA, because GDELT's organisation list
+names Nvidia wherever a car ships Nvidia Drive. No previously-passing hit was
+displaced out of the top 10 in this run, so the trade is currently positive, but
+recall bought with noise is not recall. If a future tightening pass is needed,
+the lever is requiring the company in the headline (or demoting roundups),
+measured against this same held-out set.
+
+The remaining misses are mostly not ranking failures either: #226's answer key
+itself records no company-specific news, #329 and #376 are macro (a CPI print,
+oil and US-Iran tensions), and #265 is a thematic sector rebound with no discrete
+story. Those need a different mechanism than more sources.
