@@ -1971,3 +1971,37 @@ tracing why a verdict changed, not for quoting a number.
 ⚠️ Do not re-derive a headline figure by adding up a match file. If the two ever
 need to agree, re-score the answer key AFTER the clustering it is meant to
 describe, and date the filename accordingly.
+
+### 16.23 Backfilling every swing's true pre-move window changed nothing
+
+The original GDELT backfill used a fixed ±1 day pad, which provably missed days:
+#426's pre-move window opens at Friday's close, three days before onset, and
+that day was never fetched. So the backfill was re-run over each swing's ACTUAL
+`windows_for` pre-move window, applied to all 68 answer-key swings rather than
+only the uncovered ones (fetching only for cases being measured would inflate
+their coverage relative to any general policy).
+
+    68 swings -> 117 days in 33 blocks, 144 new rows, 23 GB (109 GB of 700 spent)
+
+| | before | after |
+|---|---|---|
+| catalyst coverage | 0.709 | 0.709 |
+| recall@10 (covered) | 0.974 | 0.974 |
+| recall@10 (blind) | 0.691 | 0.691 |
+
+**Not one metric moved.** This is worth recording precisely because it is a
+negative result: "fetch a wider window" is now a closed question, and the next
+person does not need to spend the 23 GB to find that out.
+
+It also corroborates what the two label-recovery scorers found independently:
+the 16 still-uncovered cases fail because the story is in NO configured source —
+there is no Forbes in the corpus at all (#426), no Piper Sandler note (#422), no
+Best Buy pre-order leak (#420), no Stellantis/Snapdragon item (#331) — or
+because the only article reporting the catalyst published AFTER the onset (#248,
+#315, #353, #218, #293). Neither failure is reachable by fetching more days of
+the same 13 domains.
+
+⚠️ Coverage is now bound by exactly two things: which publishers the free stack
+can see, and how much of the time the collector is up. Both were addressed today
+as far as code can (GDELT, and the KeepAlive LaunchAgent in 16.18). The rest is
+an always-on host and sources this project does not have.
