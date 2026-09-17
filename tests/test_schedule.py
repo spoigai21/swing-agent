@@ -1,13 +1,23 @@
 """The collector's once-a-day jobs: post-close run + alerts, nightly placebo."""
 from __future__ import annotations
 
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 
 from swing.interface import schedule as s
 
 
 def _at(zone, *args) -> datetime:
     return datetime(*args, tzinfo=zone)
+
+
+def _after_placebo_time(year: int, month: int, day: int) -> datetime:
+    """Ten minutes past whatever PLACEBO_AT_PT currently is.
+
+    The slot moves (00:30 normally, 21:00 during the Gate 4 push); a fixture
+    that hard-codes 00:40 silently stops exercising the code it was written for.
+    """
+    return datetime(year, month, day, s.PLACEBO_AT_PT.hour, s.PLACEBO_AT_PT.minute,
+                    tzinfo=s.PT) + timedelta(minutes=10)
 
 
 class TestDue:
@@ -25,10 +35,13 @@ class TestDue:
     def test_post_close_run_skips_weekends(self):
         assert s.due(_at(s.ET, 2026, 9, 13, 18, 0), s.ET, s.DAILY_AT_ET, None, True) is None
 
-    def test_placebo_runs_every_night_in_pacific_time(self):
-        # 07:40 UTC on a Sunday is 00:40 Pacific.
-        now = _at(s.ET, 2026, 9, 13, 3, 40)
-        assert s.due(now, s.PT, s.PLACEBO_AT_PT, None, False) == date(2026, 9, 13)
+    def test_placebo_runs_every_night_including_weekends(self):
+        """Time-of-day is a knob (00:30 normally, 21:00 during the Gate 4 push),
+        so the fixture is built FROM the constant rather than hard-coding it.
+        What must not change is that placebo runs on weekends too."""
+        sunday = datetime(2026, 9, 13, s.PLACEBO_AT_PT.hour, s.PLACEBO_AT_PT.minute,
+                          tzinfo=s.PT) + timedelta(minutes=10)
+        assert s.due(sunday, s.PT, s.PLACEBO_AT_PT, None, False) == date(2026, 9, 13)
 
     def test_marker_round_trip(self, tmp_path, monkeypatch):
         monkeypatch.setattr(s, "DATA", tmp_path)
@@ -45,7 +58,7 @@ def test_placebo_stops_spending_quota_once_gate_4_has_its_200(tmp_path, monkeypa
     monkeypatch.setattr(s, "DATA", tmp_path)
     monkeypatch.setattr(placebo, "cumulative", lambda: {"n": 200, "confabulated": 3, "rate": 0.015})
     monkeypatch.setattr(placebo, "run", lambda **k: pytest.fail("must not spend quota"))
-    assert s.placebo_if_due(_at(s.PT, 2026, 9, 15, 0, 40)) == 0
+    assert s.placebo_if_due(_after_placebo_time(2026, 9, 15)) == 0
 
 
 def test_last_night_tops_up_to_exactly_200(tmp_path, monkeypatch):
@@ -62,7 +75,7 @@ def test_last_night_tops_up_to_exactly_200(tmp_path, monkeypatch):
     monkeypatch.setattr(placebo, "cumulative", lambda: {"n": 190, "confabulated": 1, "rate": 0.005})
     monkeypatch.setattr(placebo, "run", fake_run)
     monkeypatch.setattr(llm, "remaining_today", lambda: llm.DAILY_QUOTA)
-    s.placebo_if_due(_at(s.PT, 2026, 9, 15, 0, 40))
+    s.placebo_if_due(_after_placebo_time(2026, 9, 15))
     assert asked["n"] == 10
 
 
@@ -83,7 +96,7 @@ def test_a_burnt_day_shortens_the_batch_instead_of_spending_the_tail(tmp_path, m
     monkeypatch.setattr(placebo, "cumulative", lambda: {"n": 0, "confabulated": 0, "rate": None})
     monkeypatch.setattr(placebo, "run", fake_run)
     monkeypatch.setattr(llm, "remaining_today", lambda: 8)
-    s.placebo_if_due(_at(s.PT, 2026, 9, 15, 0, 40))
+    s.placebo_if_due(_after_placebo_time(2026, 9, 15))
     assert asked["n"] == 8 - s.INTERACTIVE_RESERVE
 
 
@@ -97,7 +110,7 @@ def test_an_exhausted_day_runs_nothing(tmp_path, monkeypatch):
     monkeypatch.setattr(placebo, "cumulative", lambda: {"n": 0, "confabulated": 0, "rate": None})
     monkeypatch.setattr(placebo, "run", lambda **k: pytest.fail("must not call a spent quota"))
     monkeypatch.setattr(llm, "remaining_today", lambda: s.INTERACTIVE_RESERVE)
-    assert s.placebo_if_due(_at(s.PT, 2026, 9, 15, 0, 40)) == 0
+    assert s.placebo_if_due(_after_placebo_time(2026, 9, 15)) == 0
 
 
 def test_the_collector_runs_both_jobs():
@@ -132,11 +145,17 @@ class TestQuotaLeavesRoomForQuestions:
         assert (s.NIGHTLY_PLACEBO_CASES + s.DAILY_ATTRIBUTIONS
                 + s.INTERACTIVE_RESERVE) <= s.DAILY_MODEL_QUOTA
 
-    def test_a_reserve_is_actually_held_back(self):
-        # Regression: placebo 17 + daily 3 == 20 exactly, so by breakfast every
-        # live question answered `model_unavailable`.
-        assert s.INTERACTIVE_RESERVE >= 3
-        assert s.NIGHTLY_PLACEBO_CASES < s.DAILY_MODEL_QUOTA - s.DAILY_ATTRIBUTIONS
+    def test_questions_are_protected_by_reserve_or_by_timing(self):
+        """Either hold quota back, or run the batch after the day is over.
+
+        The original bug was placebo 17 + daily 3 == 20 fired at 00:30, so every
+        question answered `model_unavailable` by breakfast. During the Gate 4
+        push the reserve is 0 and the protection is the 21:00 slot instead; both
+        arrangements are acceptable, having neither is not.
+        """
+        late_enough = s.PLACEBO_AT_PT.hour >= 17
+        assert s.INTERACTIVE_RESERVE >= 3 or late_enough, (
+            "with no reserve, placebo must run after the trading day")
 
 
 class TestQuotaLedgerCountsAttempts:
