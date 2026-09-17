@@ -2005,3 +2005,59 @@ the same 13 domains.
 can see, and how much of the time the collector is up. Both were addressed today
 as far as code can (GDELT, and the KeepAlive LaunchAgent in 16.18). The rest is
 an always-on host and sources this project does not have.
+
+### 16.24 Phase 5 started: 5.1 already settled, 5.2 has a baseline, 5.3 is blocked
+
+Phase 5 touches none of the four hashed files, so none of this disturbs Gate 4's
+accrual.
+
+**5.1 Novelty — done, and the answer was "keep the heuristic."** agent-plan.md
+says: "Measure recall@10 before and after adding novelty to the ranking score.
+If it doesn't move, keep the heuristic and skip the MLP." It did not move at any
+weight, so `w_novelty = 0` and no model is trained. The plan's own rule closes
+this one.
+
+**5.2 Event classification — baseline built and beaten, with two caveats.**
+`models/events.py` turns 8-K Item numbers into labels at no annotation cost.
+
+⚠️ **The first result was label leakage.** The labels are DERIVED from the Item
+numbers and EDGAR prints them in the headline ("NVDA 8-K — Item 2.02,9.01 —"),
+so the model read the answer off its own input: **0.900 accuracy leaky, 0.835
+stripped**. `strip_label_leakage` now removes Item numbers, form names, report
+dates and the leading ticker inside `dataset()`, so this cannot recur by
+forgetting to clean in some future training script.
+
+⚠️ **59% of the filings are boilerplate** — after stripping, their entire text is
+empty. They carry a label and no evidence, and including them measures how
+predictable a company's filing calendar is. `dataset(min_words=5)` keeps the 761
+rows with real press-release prose.
+
+    761 labelled events, time-forward split at 2026-04-30 (train 608, test 153)
+    labels: earnings 250, management 228, other 206, m_and_a 77
+
+    majority class ('earnings')      acc=0.301  macroF1=0.116
+    tf-idf + logistic regression     acc=0.856  macroF1=0.785
+    tf-idf + SVD + grad boosting     acc=0.863  macroF1=0.792
+
+**A transformer must beat macroF1 0.792 to ship** (Gate 5). Substitution: the
+plan says LightGBM, but `lightgbm` cannot load here — it needs Homebrew's
+`libomp.dylib`, which is absent — so sklearn's `HistGradientBoostingClassifier`,
+the same family without the OpenMP dependency, stands in.
+
+⚠️ **Only 4 of the 10 taxonomy values appear.** `guidance`, `analyst_action`,
+`regulatory`, `litigation`, `product` and `macro` have ZERO examples, because
+8-K Item numbers do not distinguish them. So this classifier cannot deliver 5.2's
+stated payoff — per-event-type base rates to make `magnitude_plausible` a
+data-backed check — for six of the ten types. Getting those needs labels that do
+not come free from EDGAR.
+
+**5.3 Retrieval fine-tuning — blocked, honestly.** It needs "200+ confirmed
+(swing, true catalyst cluster) pairs". After today's label recovery there are 39
+covered annotations, of which 38 rank. Fine-tuning a bi-encoder on 38 pairs would
+overfit and the walk-forward split would say so. Revisit when annotations reach
+~200.
+
+**`models/splits.py` exists so no training script can shuffle a time series.**
+There is no `shuffle` or `random_state` parameter anywhere in it — a test asserts
+that structurally, by inspecting signatures — and every split raises if the
+newest training row is not strictly before the oldest evaluation row.
