@@ -31,6 +31,7 @@ from swing.models.events import dataset, distribution
 from swing.models.splits import split_at
 
 MIN_WORDS = 5          # below this a filing is pure boilerplate: a label, no evidence
+SEED = 0               # fixes the ESTIMATORS, never the split (see models.splits)
 TRAIN_FRAC = 0.8
 
 
@@ -39,9 +40,19 @@ class Score:
     name: str
     accuracy: float
     macro_f1: float
+    per_class: dict[str, float] | None = None
 
     def line(self) -> str:
         return f"  {self.name:<32} acc={self.accuracy:.3f}  macroF1={self.macro_f1:.3f}"
+
+    def by_class(self) -> str:
+        """⚠️ Read this, not the macro number, once analyst_action is included:
+        it is 77% of the rows and trivially separable (every row is templated),
+        so it lifts macro-F1 for every model equally and hides what happens to
+        the small, hard classes."""
+        if not self.per_class:
+            return ""
+        return "    " + "  ".join(f"{k}={v:.2f}" for k, v in sorted(self.per_class.items()))
 
 
 def run(min_words: int = MIN_WORDS, train_frac: float = TRAIN_FRAC) -> list[Score]:
@@ -64,9 +75,13 @@ def run(min_words: int = MIN_WORDS, train_frac: float = TRAIN_FRAC) -> list[Scor
     print(f"  {split}  (cutoff {split.cutoff:%Y-%m-%d}, time-forward)")
     print(f"  labels: {distribution(rows)}")
 
+    classes = sorted(set(y_train) | set(y_test))
+
     def scored(name: str, pred) -> Score:
+        each = f1_score(y_test, pred, average=None, labels=classes, zero_division=0)
         return Score(name, accuracy_score(y_test, pred),
-                     f1_score(y_test, pred, average="macro", zero_division=0))
+                     f1_score(y_test, pred, average="macro", zero_division=0),
+                     per_class=dict(zip(classes, (float(v) for v in each), strict=True)))
 
     # The floor is the commonest class IN TRAINING — using the overall majority
     # would peek at the test period.
@@ -81,8 +96,16 @@ def run(min_words: int = MIN_WORDS, train_frac: float = TRAIN_FRAC) -> list[Scor
     lr = LogisticRegression(max_iter=2000, class_weight="balanced").fit(x_train, y_train)
     out.append(scored("tf-idf + logistic regression", lr.predict(x_test)))
 
-    svd = TruncatedSVD(n_components=min(200, x_train.shape[1] - 1)).fit(x_train)
-    gbm = HistGradientBoostingClassifier(max_iter=300).fit(svd.transform(x_train), y_train)
+    # ⚠️ random_state is REQUIRED here, and it is not the thing models.splits
+    # forbids: that bans shuffling the TIME ORDER, this makes a fitted model
+    # reproducible. Without it this baseline scored 0.772-0.829 macroF1 across
+    # seven identical runs (sd 0.020), a 0.057 spread -- four times the margin a
+    # transformer was about to be credited with beating it by. A measuring stick
+    # that moves cannot referee Gate 5.
+    svd = TruncatedSVD(n_components=min(200, x_train.shape[1] - 1),
+                       random_state=SEED).fit(x_train)
+    gbm = HistGradientBoostingClassifier(max_iter=300,
+                                         random_state=SEED).fit(svd.transform(x_train), y_train)
     out.append(scored("tf-idf + SVD + grad boosting", gbm.predict(svd.transform(x_test))))
     return out
 
@@ -92,6 +115,8 @@ def main() -> int:
     print()
     for s in scores:
         print(s.line())
+        if s.by_class():
+            print(s.by_class())
     best = max(scores[1:], key=lambda s: s.macro_f1)
     print(f"\nA transformer must beat macroF1={best.macro_f1:.3f} ({best.name}) to ship. "
           "agent-plan.md Gate 5.")

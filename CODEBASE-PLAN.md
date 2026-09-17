@@ -2061,3 +2061,48 @@ overfit and the walk-forward split would say so. Revisit when annotations reach
 There is no `shuffle` or `random_state` parameter anywhere in it — a test asserts
 that structurally, by inspecting signatures — and every split raises if the
 newest training row is not strictly before the oldest evaluation row.
+
+### 16.25 Phase 5.2 verdict: DistilBERT does not beat TF-IDF. Keep TF-IDF.
+
+Adding `analyst-ratings` as a free `analyst_action` label took the dataset from
+761 rows and 4 classes to 3,259 rows and 5. Then, on the same time-forward split:
+
+    baseline (pinned, 5 runs)   macroF1 0.836  sd=0.000
+    distilbert (3 seeds)        0.846 / 0.853 / 0.830   mean 0.843
+    margin at worst seed        -0.006       <- seed 2 LOSES
+
+    analyst_action=1.00(n=488)  earnings=0.95-0.97(n=55)  management=0.95-0.97(n=43)
+    other=0.72-0.77(n=52)       m_and_a=0.51-0.59(n=14)
+
+**Verdict: inside the noise.** agent-plan.md 5.2 is explicit about what that
+means — "If your transformer cannot beat it, you do not have enough labels yet —
+go label more instead of tuning hyperparameters." So 5.2 ships the TF-IDF model
+and Gate 5 is NOT satisfied for it.
+
+⚠️ **The verdict rule had to be tightened three times, and each earlier version
+would have recorded a pass that was not earned.**
+
+1. *Single run vs single run.* Reported 0.801 vs 0.787 and printed "Gate 5
+   satisfied". But the boosting baseline had no `random_state` and swung
+   **0.772-0.829 across seven identical runs** (sd 0.020, spread 0.057) — four
+   times the margin it was being beaten by. Pinning the estimators took its sd
+   to 0.000. A measuring stick that moves cannot referee a gate.
+2. *Best-run comparison.* Required the transformer to clear the baseline's best
+   run on every seed. It did, by 0.010 — but `m_and_a` has **14 test rows**, and
+   macro-F1 weights classes equally, so one row is worth (1/5)/14 = **0.014**.
+   The "win" was finer than the instrument could resolve.
+3. *Resolution-aware.* The margin must now exceed one row of the smallest class.
+   `one_row_resolution` and `verdict` are pure functions with tests, including
+   the exact 0.010-vs-0.014 case that previously read as a pass.
+
+⚠️ **Seeds do not reproduce on MPS.** The same code with the same seeds gave mean
+0.861 on one run and 0.843 on the next. `torch.manual_seed` does not determinize
+MPS kernels, so the transformer's true spread is wider than any single run's sd
+suggests — another reason the 0.010 margin was never a result.
+
+**What would actually move 5.2:** labels for the five taxonomy values that still
+have none (`guidance`, `regulatory`, `litigation`, `product`, `macro`). The win
+here is not in a bigger model — DistilBERT already matches TF-IDF on `earnings`
+and `management` and both are weak on `m_and_a`, the class with 14 test rows.
+Until those classes exist, 5.2 cannot deliver its stated payoff of per-event-type
+base rates for `magnitude_plausible`.

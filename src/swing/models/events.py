@@ -28,6 +28,18 @@ from swing.store.session import connect
 # is never itself the event, so it is dropped before deciding.
 NON_EVENT_ITEMS = {"9.01"}
 
+# Some SOURCES are a label on their own. Every analyst-ratings row is, by
+# construction, an analyst action ("Goldman Sachs reiterates Neutral on Tesla
+# (TSLA); price target $360"), which buys a fifth taxonomy class that 8-K Item
+# numbers cannot express at all.
+#
+# ⚠️ This is not the leakage that 8-K Items were. There the label was DERIVED
+# from a string printed in the text; here the label comes from provenance and
+# the text independently describes the event. But the phrasing is templated, so
+# the class is easy and will lift macro-F1 for every model equally — read the
+# per-class F1, not the headline number.
+SOURCE_LABELS = {"analyst-ratings": "analyst_action"}
+
 # Highest precedence first: an 8-K filed under 2.02 AND 7.01 is an earnings
 # release with a Reg FD courtesy copy, not a Reg FD disclosure.
 ITEM_TO_EVENT: list[tuple[frozenset[str], str]] = [
@@ -91,13 +103,15 @@ def dataset(min_words: int = 0) -> list[LabelledEvent]:
     with connect() as conn:
         rows = conn.execute(
             "SELECT id, published_at, tickers, headline, coalesce(summary,'') AS summary, "
-            "       event_hint "
-            "FROM articles WHERE event_hint IS NOT NULL ORDER BY published_at"
+            "       event_hint, source "
+            "FROM articles WHERE event_hint IS NOT NULL OR source = ANY(%s) "
+            "ORDER BY published_at",
+            (list(SOURCE_LABELS),)
         ).fetchall()
 
     out: list[LabelledEvent] = []
     for r in rows:
-        label = event_type_from_items(r["event_hint"])
+        label = event_type_from_items(r["event_hint"]) or SOURCE_LABELS.get(r["source"])
         if label is None:
             continue
         out.append(LabelledEvent(

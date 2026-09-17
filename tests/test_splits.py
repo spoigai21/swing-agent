@@ -137,3 +137,60 @@ class TestEventLabelsCannotLeak:
         assert event_type_from_items(None) is None
         # An earnings release with a Reg FD courtesy copy is still earnings.
         assert event_type_from_items("2.02,7.01,9.01") == "earnings"
+
+
+class TestSourceBasedLabels:
+    """analyst-ratings rows are analyst actions by construction — a fifth class
+    that 8-K Item numbers cannot express. Unlike the Item-number leak, the label
+    comes from provenance while the text independently describes the event."""
+
+    def test_the_source_map_covers_analyst_ratings(self):
+        from swing.models.events import SOURCE_LABELS
+
+        assert SOURCE_LABELS["analyst-ratings"] == "analyst_action"
+
+    def test_item_labels_still_win_when_both_could_apply(self):
+        """An 8-K is labelled by its Items even if its source were mapped: the
+        filing's own Item numbers are the more specific evidence."""
+        from swing.models.events import SOURCE_LABELS, event_type_from_items
+
+        assert event_type_from_items("2.02,9.01") == "earnings"
+        assert "sec-edgar" not in SOURCE_LABELS
+
+
+class TestAMarginSmallerThanOneRowIsNotAResult:
+    """The 5.2 verdict rule has been tightened twice, both times after it
+    announced a pass it had not earned: first comparing one transformer seed to
+    one lucky baseline run, then clearing the baseline by 0.010 when a single
+    row of the smallest class was worth 0.0143."""
+
+    def test_resolution_is_one_row_of_the_smallest_class(self):
+        from swing.models.classifier import one_row_resolution
+
+        support = {"analyst_action": 488, "earnings": 55, "m_and_a": 14,
+                   "management": 43, "other": 52}
+        assert one_row_resolution(support) == pytest.approx((1 / 5) / 14, rel=1e-6)
+
+    def test_the_real_margin_that_looked_like_a_pass_is_rejected(self):
+        from swing.models.classifier import verdict
+
+        # distilbert min seed 0.846 vs pinned baseline 0.836.
+        assert verdict(margin=0.010, resolution=0.0143,
+                       mean_got=0.861, mean_base=0.836) == "below_resolution"
+
+    def test_a_margin_above_one_row_passes(self):
+        from swing.models.classifier import verdict
+
+        assert verdict(margin=0.02, resolution=0.0143,
+                       mean_got=0.870, mean_base=0.836) == "pass"
+
+    def test_losing_on_every_seed_is_not_dressed_up(self):
+        from swing.models.classifier import verdict
+
+        assert verdict(-0.01, 0.0143, mean_got=0.84, mean_base=0.836) == "inside_noise"
+        assert verdict(-0.05, 0.0143, mean_got=0.79, mean_base=0.836) == "loses"
+
+    def test_empty_support_does_not_divide_by_zero(self):
+        from swing.models.classifier import one_row_resolution
+
+        assert one_row_resolution({}) == 0.0
