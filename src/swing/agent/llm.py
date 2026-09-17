@@ -63,14 +63,27 @@ def remaining_today() -> int:
     return max(0, DAILY_QUOTA - spent_today())
 
 
+def is_quota_rejection(exc: BaseException) -> bool:
+    """A 429 RESOURCE_EXHAUSTED: the request was refused, not served."""
+    text = f"{type(exc).__name__} {exc}"
+    return "RESOURCE_EXHAUSTED" in text or "429" in text
+
+
 def record_call(n: int = 1) -> int:
-    """Count one request ATTEMPT, successful or not."""
+    """Count one request that actually reached the model.
+
+    ⚠️ Attempts that Google REJECTS for quota are not charged against the daily
+    allowance, so they must not be counted. Counting them read 36 attempts on a
+    20-request day, and since schedule.placebo_if_due sizes the nightly batch
+    from remaining_today(), that would skip capacity Gate 4 actually had — the
+    opposite of the undercount this ledger was built to fix.
+    """
     try:
         data = json.loads(QUOTA_PATH.read_text())
     except (OSError, ValueError):
         data = {}
     day = _today()
-    data[day] = int(data.get(day, 0)) + n
+    data[day] = max(0, int(data.get(day, 0)) + n)
     # Keep the file small; a fortnight is plenty to debug a bad night.
     for old in sorted(data)[:-14]:
         data.pop(old, None)
@@ -96,8 +109,13 @@ def invoke_with_retry(runnable, prompt: str):
     cap. The batch has no latency requirement, so pacing costs nothing.
     """
     _llm_limiter.wait()
-    record_call()          # count the ATTEMPT: a failure costs quota too
-    return runnable.invoke(prompt)
+    record_call()          # a served call costs quota even when it then fails
+    try:
+        return runnable.invoke(prompt)
+    except Exception as exc:
+        if is_quota_rejection(exc):
+            record_call(-1)     # refused, never served, never charged
+        raise
 
 
 def get_llm(**kwargs: Any):

@@ -197,3 +197,51 @@ class TestQuotaLedgerCountsAttempts:
 
         assert "remaining_today" in inspect.getsource(s.placebo_if_due)
         assert "budget" in inspect.getsource(s.placebo_if_due)
+
+
+class TestRefusedRequestsAreNotCharged:
+    """Google rejects over-quota calls without charging them. Counting those as
+    spend read 36 attempts on a 20-request day, and the nightly batch sizes
+    itself from remaining_today() — so it would skip capacity Gate 4 had."""
+
+    def _ledger(self, tmp_path, monkeypatch):
+        from swing.agent import llm
+
+        monkeypatch.setattr(llm, "QUOTA_PATH", tmp_path / "usage.json")
+        return llm
+
+    def test_a_quota_rejection_is_recognised(self):
+        from swing.agent import llm
+
+        assert llm.is_quota_rejection(RuntimeError("429 RESOURCE_EXHAUSTED ... limit: 20"))
+        assert not llm.is_quota_rejection(RuntimeError("503 UNAVAILABLE high demand"))
+
+    def test_a_refused_call_leaves_the_ledger_unchanged(self, tmp_path, monkeypatch):
+        import pytest
+
+        llm = self._ledger(tmp_path, monkeypatch)
+
+        class _Refused:
+            def invoke(self, _prompt):
+                raise RuntimeError("429 RESOURCE_EXHAUSTED for gemini-3.6-flash")
+
+        before = llm.spent_today()
+        with pytest.raises(RuntimeError):
+            llm.invoke_with_retry(_Refused(), "x")
+        assert llm.spent_today() == before, "a refused request must not count as spend"
+
+    def test_a_served_call_counts(self, tmp_path, monkeypatch):
+        llm = self._ledger(tmp_path, monkeypatch)
+
+        class _Ok:
+            def invoke(self, _prompt):
+                return "answer"
+
+        before = llm.spent_today()
+        assert llm.invoke_with_retry(_Ok(), "x") == "answer"
+        assert llm.spent_today() == before + 1
+
+    def test_the_ledger_never_goes_negative(self, tmp_path, monkeypatch):
+        llm = self._ledger(tmp_path, monkeypatch)
+        llm.record_call(-5)
+        assert llm.spent_today() == 0
