@@ -114,6 +114,18 @@ def run(once: bool = False) -> int:
         len(jobs),
         ", ".join(f"{j.name}@{int(j.interval)}s" for j in jobs),
     )
+    # ⚠️ Log the SCHEDULE CONSTANTS, not just the job intervals. Python reads
+    # source once at import, so a running collector keeps the constants it
+    # started with: on 2026-09-17 this one fired placebo at 00:30 with 12 cases
+    # because it predated the commit moving it to 21:00 with 20. The log showed
+    # nothing amiss — it never printed what it was actually going to do.
+    from swing.interface import schedule as sched
+
+    logger.info(
+        "schedule in force: placebo %s PT x%d, batch %s ET x%d, reserve %d of %d/day",
+        sched.PLACEBO_AT_PT, sched.NIGHTLY_PLACEBO_CASES, sched.DAILY_AT_ET,
+        sched.DAILY_ATTRIBUTIONS, sched.INTERACTIVE_RESERVE, sched.DAILY_MODEL_QUOTA,
+    )
 
     signal.signal(signal.SIGINT, _handle_signal)
     signal.signal(signal.SIGTERM, _handle_signal)

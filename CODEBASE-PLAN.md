@@ -2106,3 +2106,33 @@ here is not in a bigger model — DistilBERT already matches TF-IDF on `earnings
 and `management` and both are weak on `m_and_a`, the class with 14 test rows.
 Until those classes exist, 5.2 cannot deliver its stated payoff of per-event-type
 base rates for `magnitude_plausible`.
+
+### 16.26 A committed scheduler constant does nothing until the collector restarts
+
+Push mode (16.x: placebo at 21:00 PT taking the day's unspent quota) was
+committed at ~19:00 PT on 2026-09-16 and had no effect. At 00:30 PT on 09-17 the
+collector fired placebo anyway, with the OLD constants: 12 cases, 5 reserved,
+00:30 slot. Gate 4 went 4 -> 14, and the day's entire quota was gone before
+breakfast — exactly the failure push mode existed to prevent.
+
+`due()` was not at fault; it correctly returns `None` at 01:53 for a 21:00 job.
+**Python reads source once at import.** The running collector had imported
+`schedule.py` before the commit, so it kept the constants it started with. Worse,
+`launchctl`'s `KeepAlive` had silently revived it at some point between the quota
+-ledger commit and the push-mode commit, so it was running a MIXTURE: new
+`llm.py` (the attempt ledger recorded 22 requests) with old `schedule.py`.
+
+Nothing in the log said so. It printed job names and intervals — `gdelt@14400s`
+and so on — but never the schedule constants, so "placebo at 00:30 with 12 cases"
+looked identical to "placebo at 21:00 with 20". Startup now logs them:
+
+    schedule in force: placebo 21:00:00 PT x20, batch 16:45:00 ET x0, reserve 0 of 20/day
+
+⚠️ **Rule: after changing anything in `interface/schedule.py`, restart the
+collector** (`launchctl kickstart -k gui/$UID/com.swing.collector`) and check
+that line. This is not theoretical — it cost a night of Gate 4 running under the
+wrong allocation, and it is invisible unless you look for it.
+
+Note the failure is asymmetric with the hashed-config problem (16.12): editing
+`sources.yaml` resets Gate 4 *immediately and visibly*, whereas editing
+`schedule.py` changes nothing *until a restart you may not notice happening*.
