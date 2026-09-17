@@ -194,3 +194,57 @@ class TestAMarginSmallerThanOneRowIsNotAResult:
         from swing.models.classifier import one_row_resolution
 
         assert one_row_resolution({}) == 0.0
+
+
+class TestCatalystPairsAndSaturation:
+    """5.3's stated baseline is the off-the-shelf embedder. On the 38 pairs that
+    exist it already scores recall@10 = 1.000, so fine-tuning cannot be shown to
+    beat it at k=10 however many pairs are collected. Detecting that is the
+    point: it is a measurement problem, not a modelling one."""
+
+    def _pairs(self, ranks):
+        from swing.models.pairs import CatalystPair
+
+        return [CatalystPair(swing_id=i, ticker="NVDA", positive_cluster_id=i,
+                             positive_rank=r, negative_cluster_ids=[])
+                for i, r in enumerate(ranks)]
+
+    def test_recall_at_k_and_mrr(self):
+        from swing.models.pairs import baseline_ranking
+
+        m = baseline_ranking(self._pairs([1, 2, 3, 10]))
+        assert m["recall@1"] == pytest.approx(0.25)
+        assert m["recall@3"] == pytest.approx(0.75)
+        assert m["recall@10"] == pytest.approx(1.0)
+        assert m["MRR"] == pytest.approx((1 + 1 / 2 + 1 / 3 + 1 / 10) / 4)
+
+    def test_a_perfect_baseline_is_reported_as_saturated(self):
+        from swing.models.pairs import KS, baseline_ranking
+
+        # Worst rank 7: saturated at k=10 only. recall@5 is 3/4 here, which is
+        # exactly the real shape — the live pairs top out at rank 7 too.
+        m = baseline_ranking(self._pairs([1, 2, 3, 7]))
+        assert [k for k in KS if m[f"recall@{k}"] == 1.0] == [10]
+        assert m["recall@5"] == pytest.approx(0.75)
+
+    def test_several_k_saturate_together_when_every_rank_is_tight(self):
+        from swing.models.pairs import KS, baseline_ranking
+
+        m = baseline_ranking(self._pairs([1, 2, 3, 3]))
+        assert [k for k in KS if m[f"recall@{k}"] == 1.0] == [3, 5, 10]
+        assert 1 not in [k for k in KS if m[f"recall@{k}"] == 1.0], (
+            "positives below rank 1 must leave headroom at k=1")
+
+    def test_headroom_remains_at_rank_one(self):
+        """Only 11 of 38 positives rank first, and the agent cites from the top
+        of the list, so recall@1 is where fine-tuning could still pay."""
+        from swing.models.pairs import baseline_ranking
+
+        m = baseline_ranking(self._pairs([1] * 11 + [2] * 11 + [3] * 9 + [4, 4, 4, 5, 6, 6, 7]))
+        assert m["recall@10"] == pytest.approx(1.0)
+        assert m["recall@1"] == pytest.approx(11 / 38, abs=0.01)
+
+    def test_empty_input_does_not_crash(self):
+        from swing.models.pairs import baseline_ranking
+
+        assert baseline_ranking([]) == {}

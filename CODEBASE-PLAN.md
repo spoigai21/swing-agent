@@ -2136,3 +2136,73 @@ wrong allocation, and it is invisible unless you look for it.
 Note the failure is asymmetric with the hashed-config problem (16.12): editing
 `sources.yaml` resets Gate 4 *immediately and visibly*, whereas editing
 `schedule.py` changes nothing *until a restart you may not notice happening*.
+
+### 16.27 Phase 5.3 is blocked twice over, and the second one is the interesting half
+
+`models/pairs.py` extracts the `(swing, true catalyst cluster)` pairs 5.3 needs,
+with hard negatives taken from the same window as the plan specifies:
+
+    pairs: 38 of 200 (short by 162)   hard negatives: 603
+
+    off-the-shelf baseline:
+      recall@1     0.289
+      recall@3     0.816
+      recall@5     0.921
+      recall@10    1.000      <- saturated
+      MRR          0.551
+
+**Blocker 1, expected: 162 more annotated catalysts.** Fine-tuning a bi-encoder
+on 38 pairs would overfit, and a walk-forward split would say so.
+
+⚠️ **Blocker 2, which no amount of labelling fixes: the stated baseline is
+already perfect.** agent-plan.md 5.3 says "Baseline to beat: the off-the-shelf
+embedding model", and Gate 5 requires beating it. On every pair that exists the
+off-the-shelf model puts the true catalyst in the top 10 — worst rank 7, recall@10
+= 1.000. Nothing beats 1.000. Collecting 200 pairs would not change that; the
+gate as written is **unmeasurable at k=10**, and that is a flaw in the
+specification rather than a shortage of data.
+
+**Where the headroom actually is: rank 1.** Only 11 of 38 positives rank first
+(recall@1 = 0.289, MRR = 0.551). That is not a cosmetic distinction — the agent
+is shown the top-k and cites from it, so moving the true catalyst from rank 3 to
+rank 1 changes which article it quotes even when recall@10 does not move at all.
+So when 5.3 is eventually attempted, **judge it on recall@1 and MRR**, and record
+recall@10 only to show it did not regress.
+
+`readiness()` reports the saturated k values explicitly, so this cannot be
+rediscovered the hard way after someone spends weeks annotating to reach 200.
+
+### 16.27 Phase 5.3 is blocked twice over, and the second one is the interesting half
+
+`models/pairs.py` extracts the `(swing, true catalyst cluster)` pairs 5.3 needs,
+with hard negatives taken from the same window as the plan specifies:
+
+    pairs: 38 of 200 (short by 162)   hard negatives: 603
+
+    off-the-shelf baseline:
+      recall@1     0.289
+      recall@3     0.816
+      recall@5     0.921
+      recall@10    1.000      <- saturated
+      MRR          0.551
+
+**Blocker 1, expected: 162 more annotated catalysts.** Fine-tuning a bi-encoder
+on 38 pairs would overfit, and a walk-forward split would say so.
+
+⚠️ **Blocker 2, which no amount of labelling fixes: the stated baseline is
+already perfect.** agent-plan.md 5.3 says "Baseline to beat: the off-the-shelf
+embedding model", and Gate 5 requires beating it. On every pair that exists the
+off-the-shelf model puts the true catalyst in the top 10 — worst rank 7,
+recall@10 = 1.000. Nothing beats 1.000. Collecting 200 pairs would not change
+that; the gate as written is **unmeasurable at k=10**, and that is a flaw in the
+specification rather than a shortage of data.
+
+**Where the headroom actually is: rank 1.** Only 11 of 38 positives rank first
+(recall@1 = 0.289, MRR = 0.551). That is not a cosmetic distinction — the agent
+is shown the top-k and cites from it, so moving the true catalyst from rank 3 to
+rank 1 changes which article it quotes even when recall@10 does not move at all.
+So when 5.3 is eventually attempted, **judge it on recall@1 and MRR**, and record
+recall@10 only to show it did not regress.
+
+`readiness()` reports the saturated k values explicitly, so this cannot be
+rediscovered the hard way after someone spends weeks annotating to reach 200.
