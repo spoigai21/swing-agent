@@ -2231,3 +2231,31 @@ night from `remaining_today()`, that inflation makes Gate 4 skip capacity it has
 Together these explain the whole pattern: a 20-case batch could never finish,
 every run looked like quota exhaustion, and the ledger then confirmed the wrong
 diagnosis. 20 cases at 13s apart is ~4.5 minutes, comfortably within a night.
+
+### 16.29 Stop predicting the quota; let the API refuse
+
+Three wrong models of the same limit in two days:
+
+1. **Daily cap.** A batch stopped at 10 and I blamed the 20/day quota.
+2. **Per-minute cap.** It was actually 5 RPM (16.28) — real, and the limiter was
+   3x over.
+3. **Daily cap again, self-inflicted.** After fixing RPM I hand-corrected the
+   ledger from 23 down to 7, reasoning that refusals are not charged and stored
+   attributions are the true count. Wrong: a call can be SERVED AND CHARGED and
+   still persist no attribution. The next batch trusted 7, walked into
+   `GenerateRequestsPerDayPerProjectPerModel-FreeTier`, and attributed 0 of 13.
+
+The ledger has now been wrong in both directions. It cannot be made reliable,
+because the only authoritative counter lives at Google, so it is now **advisory
+and never a gate**:
+
+* `placebo_if_due` no longer skips a night when the ledger reads zero. Skipping
+  on a bad estimate costs 20 real cases; attempting with no quota costs two
+  refused calls, which are not charged, and `placebo.run` stops after two in a
+  row.
+* The batch size is `min(NIGHTLY_PLACEBO_CASES, remaining to 200)` — the ledger
+  no longer caps it.
+
+⚠️ **Do not hand-edit `data/gemini_usage.json`.** Both corrections in this
+session made things worse. Let it count, read it for observability, and let the
+429 decide.

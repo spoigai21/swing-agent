@@ -103,20 +103,22 @@ def placebo_if_due(now: datetime | None = None) -> int:
     from swing.eval.placebo import cumulative, run
 
     scored = cumulative()["n"]
-    # Size the batch against what the day ACTUALLY has left, not the constant:
-    # failed calls spend quota without storing a row, so a bad night can leave
-    # far less than 20. agent/llm.py counts attempts.
+    # ⚠️ The ledger is ADVISORY, never a gate. It has been wrong in both
+    # directions: it over-counted refused requests (reading 23 on a 20-request
+    # day), and after a hand-correction it under-counted (reading 7 when the
+    # daily cap was already reached, because a call can be served and charged
+    # without persisting an attribution). Skipping a night on a bad estimate
+    # costs 20 cases; attempting when the quota is gone costs two refused calls
+    # that are not charged, and placebo.run stops after two in a row.
+    # Google's 429 is the only authority on what is left.
     from swing.agent.llm import remaining_today
 
-    budget = max(0, remaining_today() - INTERACTIVE_RESERVE)
-    if budget <= 0:
-        logger.info("placebo skipped: %d requests left today, all reserved for questions",
-                    remaining_today())
-        return 0
+    logger.info("placebo starting: ledger says %d requests left today (advisory)",
+                remaining_today())
     if scored >= GATE4_CASES:
         logger.info("placebo: %d cases scored on this version; Gate 4 sample complete", scored)
         return 0
-    result = run(n=min(NIGHTLY_PLACEBO_CASES, GATE4_CASES - scored, budget))
+    result = run(n=min(NIGHTLY_PLACEBO_CASES, GATE4_CASES - scored))
     logger.info("scheduled placebo for %s: %s scored this run; cumulative %s",
                 day, result.get("n"), cumulative())
     return 0

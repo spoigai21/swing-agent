@@ -97,20 +97,29 @@ def test_a_burnt_day_shortens_the_batch_instead_of_spending_the_tail(tmp_path, m
     monkeypatch.setattr(placebo, "run", fake_run)
     monkeypatch.setattr(llm, "remaining_today", lambda: 8)
     s.placebo_if_due(_after_placebo_time(2026, 9, 15))
-    assert asked["n"] == 8 - s.INTERACTIVE_RESERVE
+    assert asked["n"] == s.NIGHTLY_PLACEBO_CASES, "the ledger no longer caps the batch"
 
 
-def test_an_exhausted_day_runs_nothing(tmp_path, monkeypatch):
-    import pytest
-
+def test_a_ledger_reading_zero_does_not_skip_the_night(tmp_path, monkeypatch):
+    """The ledger is advisory. It has read 23 on a 20-request day and 7 when the
+    cap was already reached, so trusting it to skip costs 20 real cases on a bad
+    estimate. Attempting when the quota is gone costs two refused calls, which
+    Google does not charge and placebo.run stops after."""
     from swing.agent import llm
     from swing.eval import placebo
 
+    asked = {}
+
+    def fake_run(n, **kwargs):
+        asked["n"] = n
+        return {"n": 0, "note": "quota"}
+
     monkeypatch.setattr(s, "DATA", tmp_path)
     monkeypatch.setattr(placebo, "cumulative", lambda: {"n": 0, "confabulated": 0, "rate": None})
-    monkeypatch.setattr(placebo, "run", lambda **k: pytest.fail("must not call a spent quota"))
-    monkeypatch.setattr(llm, "remaining_today", lambda: s.INTERACTIVE_RESERVE)
-    assert s.placebo_if_due(_after_placebo_time(2026, 9, 15)) == 0
+    monkeypatch.setattr(placebo, "run", fake_run)
+    monkeypatch.setattr(llm, "remaining_today", lambda: 0)
+    s.placebo_if_due(_after_placebo_time(2026, 9, 15))
+    assert asked["n"] == s.NIGHTLY_PLACEBO_CASES, "must still attempt; the API decides"
 
 
 def test_the_collector_runs_both_jobs():
@@ -192,11 +201,18 @@ class TestQuotaLedgerCountsAttempts:
         assert "record_call()" in src
         assert src.index("record_call()") < src.index("runnable.invoke")
 
-    def test_the_nightly_batch_is_sized_by_real_remaining_quota(self):
+    def test_the_ledger_is_advisory_not_a_gate(self):
+        """This test previously pinned the opposite rule — that the batch was
+        capped by a `budget` derived from the ledger. That rule was reversed
+        (16.29) after the ledger proved wrong in both directions: it read 23 on
+        a 20-request day, then 7 when the cap was already reached. It is now
+        read for the log only; Google's 429 decides what is left."""
         import inspect
 
-        assert "remaining_today" in inspect.getsource(s.placebo_if_due)
-        assert "budget" in inspect.getsource(s.placebo_if_due)
+        src = inspect.getsource(s.placebo_if_due)
+        assert "remaining_today" in src, "still worth logging what the ledger thinks"
+        assert "advisory" in src, "its advisory status must be stated at the call site"
+        assert "budget" not in src, "the ledger must not cap or skip the batch"
 
 
 class TestRefusedRequestsAreNotCharged:
