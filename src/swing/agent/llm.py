@@ -28,7 +28,13 @@ from tenacity import retry, retry_if_exception, stop_after_attempt, wait_exponen
 from swing.common.http import _RateLimiter
 from swing.common.settings import REPO_ROOT, get_settings
 
-_llm_limiter = _RateLimiter(4.0)   # free tiers throttle per-minute as well as per-day
+# ⚠️ The free tier's per-minute cap is 5 RPM, not just 20/day. _RateLimiter takes
+# SECONDS BETWEEN CALLS, so 4.0 allowed 15/min — three times over — and every
+# batch tripped "GenerateRequestsPerMinutePerProjectPerModel-FreeTier" after a
+# handful of calls. That is why runs kept stopping at 7-10 cases and being
+# misread as the daily quota running out. 13s = 4.6/min, just under the ceiling.
+LLM_MIN_INTERVAL = 13.0
+_llm_limiter = _RateLimiter(LLM_MIN_INTERVAL)
 
 
 def _is_transient(exc: BaseException) -> bool:
@@ -97,7 +103,9 @@ def record_call(n: int = 1) -> int:
     # A person is waiting at the prompt: three tries over ~30 s, not minutes.
     # On 2026-09-14 every Flash model returned intermittent 503 "high demand";
     # only 429 was retried, so one spike failed the whole question.
-    wait=wait_exponential(multiplier=2, min=5, max=20),
+    # Google asks for a 34s retry delay on an RPM refusal; a 20s ceiling
+    # guaranteed the retry failed too, so two refusals ended the batch.
+    wait=wait_exponential(multiplier=2, min=5, max=45),
     stop=stop_after_attempt(3),
     reraise=True,
 )
@@ -113,6 +121,10 @@ def invoke_with_retry(runnable, prompt: str):
     try:
         return runnable.invoke(prompt)
     except Exception as exc:
+        # ⚠️ This must un-count on EVERY attempt, not only the one that escapes.
+        # tenacity swallows the first two, so a batch that served 7 calls logged
+        # 23 — and schedule.placebo_if_due sizes the night from remaining_today(),
+        # so an inflated ledger makes Gate 4 skip capacity it actually has.
         if is_quota_rejection(exc):
             record_call(-1)     # refused, never served, never charged
         raise

@@ -1367,8 +1367,8 @@ there as optimistic until it holds on moves researched afterwards.
 | 1 Split, swings, onset | Same maths; one day at a time for a question | `swings.detect_day` captures intraday and onset for the asked-about day | Passed. The question path does not use drift swings |
 | 2 Retrieval | Find the real cause in the top 10, measured on the answer key | GDELT wire copy added (§16.9); the gate is split into coverage and covered-recall (§16.13) | **Split.** Ranking **passes**: recall@10 = 0.97 (n=31) once the catalyst is in the corpus. Coverage **fails**: 0.56 — 24 of 25 misses are missing evidence, not bad ranking. Overall 0.545 vs the derived 0.68. §16.13 |
 | 3 Agent | Explain from own and related news; abstain in code | `attribution_v3` on `gemini-3.6-flash`; guards unchanged; model calls time out and retry transient errors | **Passed 5/5 on v3** (v2 failed 4/5), §16.6 |
-| 4 Evaluation | Confabulation < 10% over 200 placebo cases on the current version | Placebo restarted on the new version (config + prompt changed); failed calls no longer scored. **12 cases now run nightly** (17 starved live questions, §16.16) from the collector (00:30 PT, after the quota reset), stopping at 200 | **Open** until 200 accumulate (~12 nights). Adding GDELT moved `config_hash`, correctly resetting the count to 0/200 (§16.12) |
-| 5 ML | Unchanged | Not started | Blocked on Gates 2 and 4 |
+| 4 Evaluation | Confabulation < 10% over 200 placebo cases on the current version | Placebo restarted on the new version (config + prompt changed); failed calls no longer scored. **up to 20 cases run nightly at 21:00 PT** (§16.26): late, so the day's questions are served first and Gate 4 sweeps whatever quota is unspent | **Open** until 200 accumulate. Adding GDELT moved `config_hash`, correctly resetting the count to 0/200 (§16.12) |
+| 5 ML | Unchanged | **Started (§16.24-16.27).** 5.1 settled by the plan's own rule (novelty moved nothing, heuristic stays); 5.2 built with a verdict — DistilBERT ties TF-IDF, so TF-IDF ships; 5.3 blocked | 5.2 **not passed** (inside the noise — label more, do not tune). 5.3 blocked on 162 more pairs AND on a baseline already at recall@10 = 1.000 |
 | 6 Interface | One question in, one answer out; alerts on big moves | Built. The collector now runs the post-close batch (up to 3 attributions, last 3 days only) and alerts every weekday at 16:45 ET (`interface/schedule.py`); launchd CAN read `~/Desktop` — the long-standing claim otherwise was wrong (§16.18), and the collector now runs under a LaunchAgent | End-to-end live runs verified; scheduled runs start the next weekday |
 
 `agent-plan.md`, `data-sources.md` and `swing-cli.md` are the original specs and
@@ -2206,3 +2206,28 @@ recall@10 only to show it did not regress.
 
 `readiness()` reports the saturated k values explicitly, so this cannot be
 rediscovered the hard way after someone spends weeks annotating to reach 200.
+
+### 16.28 Every batch was hitting the per-MINUTE cap, not the daily one
+
+Runs kept stopping at 7-10 cases and I twice blamed the daily quota. The error
+says otherwise:
+
+    limit: 5, model: gemini-3.6-flash
+    quotaId: GenerateRequestsPerMinutePerProjectPerModel-FreeTier
+    retryDelay: 34s
+
+The free tier caps **5 requests per minute** as well as 20 per day.
+`_RateLimiter` takes seconds between calls, and it was set to 4.0 — 15/min,
+three times over. Worse, tenacity's backoff was capped at 20s while Google asked
+for 34s, so the retries were guaranteed to fail too and two refusals ended the
+run. Now 13s between calls (4.6/min) and a 45s ceiling.
+
+⚠️ **The ledger was also still over-counting**: 23 recorded against 7 actually
+served. `invoke_with_retry` un-counted a refusal only when the exception escaped,
+but tenacity swallows the first two attempts. Since `placebo_if_due` sizes the
+night from `remaining_today()`, that inflation makes Gate 4 skip capacity it has
+— the same failure mode as 16.x, one layer down.
+
+Together these explain the whole pattern: a 20-case batch could never finish,
+every run looked like quota exhaustion, and the ledger then confirmed the wrong
+diagnosis. 20 cases at 13s apart is ~4.5 minutes, comfortably within a night.
