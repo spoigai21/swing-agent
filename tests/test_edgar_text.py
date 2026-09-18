@@ -1,6 +1,8 @@
 """Reading a filing's press release. Fixtures are the shapes real filings take."""
 from __future__ import annotations
 
+from typing import ClassVar
+
 from swing.ingest.edgar_text import compose_headline, pick_exhibit, text_lines, title_and_lead
 
 
@@ -59,3 +61,66 @@ def test_headline_keeps_form_and_items_and_adds_the_title():
     assert compose_headline("TSM 6-K", "TSMC August 2026 Revenue Report") == \
         "TSM 6-K — TSMC August 2026 Revenue Report"
     assert compose_headline("NFLX 8-K — Item 5.02 — 8-K", None) == "NFLX 8-K — Item 5.02 — 8-K"
+
+
+class TestPickExhibitFindsRealPressReleases:
+    """Matching only "ex99_1" names missed HALF the press releases in a 12-filing
+    sample. Issuers name the file themselves, and every miss fell back to the
+    8-K cover page — boilerplate with no numbers, recorded as successful
+    enrichment. These are all real EDGAR filenames.
+    """
+
+    REAL: ClassVar[dict[str, tuple[list[str], str]]] = {
+        "NVDA": (["nvda-20260826.htm", "q2fy27pr.htm", "q2fy27cfocommentary.htm"], "q2fy27pr.htm"),
+        "AVGO": (["avgo-20260902.htm", "avgo-08022026x8kxex99.htm"], "avgo-08022026x8kxex99.htm"),
+        "TTWO": (["ttwo-20260807.htm", "ttwo1q27earningsrelease.htm"], "ttwo1q27earningsrelease.htm"),
+        "WBD": (["wbd-20260808.htm", "wbd2q26earningsrelease08.htm"], "wbd2q26earningsrelease08.htm"),
+        "PSKY": (["psky-20260805.htm", "ex99_q226.htm"], "ex99_q226.htm"),
+        "MRVL": (["mrvl-20260812.htm", "q227_8kx812026ex-991.htm"], "q227_8kx812026ex-991.htm"),
+        "AMZN": (["amzn-20260731.htm", "a04fy2026q2exhibit991.htm"], "a04fy2026q2exhibit991.htm"),
+        "SNDK": (["sndk-20260828.htm", "sndkq4-26ex991xpressrelease.htm"],
+                 "sndkq4-26ex991xpressrelease.htm"),
+        "DIS": (["dis-20260806.htm", "fy2026_q3xerxex991.htm"], "fy2026_q3xerxex991.htm"),
+    }
+
+    def test_every_real_filing_resolves_to_its_release(self):
+        from swing.ingest.edgar_text import pick_exhibit
+
+        for ticker, (names, expected) in self.REAL.items():
+            assert pick_exhibit(names) == expected, ticker
+
+    def test_the_cover_page_is_never_returned(self):
+        from swing.ingest.edgar_text import pick_exhibit
+
+        for names, _ in self.REAL.values():
+            picked = pick_exhibit(names)
+            assert picked != names[0], "the 8-K cover page is not the press release"
+
+    def test_slides_alone_are_not_a_press_release(self):
+        """An 8-K furnishing only an earnings deck has no release to extract;
+        None is correct, and better than returning the cover page."""
+        from swing.ingest.edgar_text import pick_exhibit
+
+        assert pick_exhibit(["amd-20260805.htm", "amdq22026earningsslidesf.htm"]) is None
+
+    def test_a_release_beside_slides_still_wins(self):
+        from swing.ingest.edgar_text import pick_exhibit
+
+        assert pick_exhibit(["amd-20260805.htm", "amdq22026earningsslidesf.htm",
+                             "amdq22026earningsrelease.htm"]) == "amdq22026earningsrelease.htm"
+
+    def test_no_exhibit_at_all_returns_none(self):
+        from swing.ingest.edgar_text import pick_exhibit
+
+        assert pick_exhibit(["abcd-20260101.htm"]) is None
+
+    def test_fetch_refuses_the_cover_page_fallback(self):
+        """It used to do `target = exhibit or primary_doc`, recording boilerplate
+        as a successful enrichment so the row was never retried."""
+        import inspect
+
+        from swing.ingest import edgar_text
+
+        src = inspect.getsource(edgar_text.fetch)
+        assert "exhibit or primary_doc" not in src
+        assert "if not exhibit:" in src

@@ -2259,3 +2259,41 @@ and never a gate**:
 ⚠️ **Do not hand-edit `data/gemini_usage.json`.** Both corrections in this
 session made things worse. Let it count, read it for observability, and let the
 429 decide.
+
+### 16.30 Half the earnings press releases were never read
+
+Auditing Step 1.7 turned up a live bug rather than a scoping question.
+`pick_exhibit` matched only `ex99_1`-style filenames:
+
+    _EXHIBIT = (?:ex|exhibit)[-_]?99[-_.]?0?1(?![0-9])
+
+Issuers name the file themselves, so on a 12-filing sample it missed six:
+
+    NVDA  q2fy27pr.htm                  TTWO  ttwo1q27earningsrelease.htm
+    AVGO  avgo-08022026x8kxex99.htm     WBD   wbd2q26earningsrelease08.htm
+    PSKY  ex99_q226.htm                 AMD   amdq22026earningsslidesf.htm
+
+Every miss fell through `target = exhibit or primary_doc` to the 8-K **cover
+page**, whose lead is boilerplate — "...issued a press release announcing its
+unaudited financial results". That is why only **41 of 595** Item 2.02 summaries
+contain a single figure, and it has been degrading earnings-day evidence all
+along, not just blocking the unbuilt guidance diff.
+
+Two fixes:
+
+* The pattern now also matches issuer naming (`earningsrelease`, `pressrelease`,
+  `pr` as its own token) and a bare `ex99`. ⚠️ The `(?!\d)` guard is retained and
+  load-bearing: without it `ex-9910.htm` — exhibit 99.10, a different document —
+  matches as though it were 99.1. A pre-existing test caught exactly that when
+  the first widening dropped the guard.
+* `fetch()` no longer falls back to the cover page. It returns nothing instead,
+  so the row stays un-enriched and is retried later, rather than being recorded
+  as done with worthless text. Recording boilerplate as success is worse than
+  failing, because nothing ever revisits it.
+
+Slides-only filings (AMD furnishing just a deck) correctly return None: a deck is
+not a press release, and there is nothing to extract. A release filed alongside
+slides still wins.
+
+Nine real EDGAR filenames are pinned in tests so the pattern cannot silently
+narrow again.

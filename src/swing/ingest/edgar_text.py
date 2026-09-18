@@ -22,7 +22,25 @@ from swing.store.session import connect
 logger = log.get("ingest.edgar_text")
 
 EVENT_FORMS = ["8-K", "8-K/A", "6-K"]
-_EXHIBIT = re.compile(r"(?:ex|exhibit)[-_]?99[-_.]?0?1(?![0-9])", re.IGNORECASE)
+# ⚠️ Matching only "ex99_1" style names missed HALF the press releases. Issuers
+# name the file themselves — q2fy27pr.htm, ttwo1q27earningsrelease.htm,
+# wbd2q26earningsrelease08.htm — and some file a bare ex99 with no trailing 1
+# (avgo-08022026x8kxex99.htm). Every miss fell back to the 8-K COVER PAGE, which
+# is why enriched summaries said "issued a press release announcing its
+# unaudited financial results" instead of the results themselves: only 41 of 595
+# Item 2.02 summaries contained a single figure.
+# ⚠️ The (?!\d) guard is load-bearing: without it "ex-9910.htm" (exhibit 99.10,
+# a different document) matches as though it were 99.1.
+_EX99 = r"(?:ex|exhibit)[-_]?99(?:[-_.]?0?1)?(?!\d)"
+# _EX99 is a str, not a literal, so these need explicit + rather than implicit
+# string concatenation.
+_EXHIBIT = re.compile(
+    _EX99                                 # ex99, ex-99_1, exhibit991, a…ex991
+    + r"|(?:earnings|press)[-_]?release"  # ttwo1q27earningsrelease
+    + r"|(?:^|[^a-z])pr(?=[^a-z]|$)",     # q2fy27pr.htm — "pr" as its own token
+    re.IGNORECASE)
+# The cover page is never the press release, whatever it is called.
+_COVER = re.compile(r"(?i)(?:^|[^a-z])8-?k(?:[^a-z0-9]|$)|^[a-z]{2,6}-\d{8}\.htm")
 _ITEM = re.compile(r"(?i)^item\s+(\d\.\d{2})\b")
 # Cover-page boilerplate, XBRL header residue and page furniture.
 _JUNK = re.compile(
@@ -37,9 +55,22 @@ _DATELINE = re.compile(r"(?i)business wire|globe ?newswire|prnewswire|\btoday\b|
 
 
 def pick_exhibit(names: list[str]) -> str | None:
-    """The press-release exhibit among a filing's files, if any."""
-    return next((n for n in names
-                 if _EXHIBIT.search(n) and n.lower().endswith((".htm", ".html", ".txt"))), None)
+    """The press-release exhibit among a filing's files, if any.
+
+    Prefers a release-looking name, and never returns the cover page: falling
+    back to it yields boilerplate ("...issued a press release announcing...")
+    rather than the numbers, which is worse than returning None because the
+    caller cannot tell enrichment failed.
+    """
+    docs = [n for n in names
+            if n.lower().endswith((".htm", ".html", ".txt"))
+            and "index" not in n.lower()
+            and not _COVER.search(n)]
+    # Prefer an explicit exhibit-99 name, then any release-looking one.
+    for n in docs:
+        if re.search(_EX99, n, re.IGNORECASE):
+            return n
+    return next((n for n in docs if _EXHIBIT.search(n)), None)
 
 
 def text_lines(markup: str) -> list[str]:
@@ -84,13 +115,18 @@ def fetch(cik: str, accession: str, primary_doc: str | None) -> tuple[str | None
     listing.raise_for_status()
     names = [i["name"] for i in listing.json()["directory"]["item"]]
     exhibit = pick_exhibit(names)
-    target = exhibit or primary_doc
-    if not target:
+    # ⚠️ Falling back to primary_doc means reading the 8-K COVER PAGE, whose lead
+    # is "...issued a press release announcing its unaudited financial results" —
+    # boilerplate with no numbers. 554 of 595 Item 2.02 summaries had no figure
+    # in them for exactly this reason. Return nothing instead, so the row stays
+    # un-enriched and is retried when the picker improves, rather than being
+    # recorded as done with worthless text.
+    if not exhibit:
         return None, None, ""
-    doc = sec_get(f"{base}/{target}")
+    doc = sec_get(f"{base}/{exhibit}")
     doc.raise_for_status()
-    title, lead = title_and_lead(text_lines(doc.text), bool(exhibit))
-    return title, lead, target
+    title, lead = title_and_lead(text_lines(doc.text), True)
+    return title, lead, exhibit
 
 
 def enrich_pending(limit: int | None = 40, since: str = "2024-09-01") -> int:
