@@ -248,3 +248,190 @@ class TestCatalystPairsAndSaturation:
         from swing.models.pairs import baseline_ranking
 
         assert baseline_ranking([]) == {}
+
+
+class TestContaminationRisk:
+    """Step 4.4's first mitigation, as a diagnostic rather than a filter.
+
+    It cannot observe what the model memorised — nothing can — so it ranks by
+    press volume and lets a metric be read on the obscure tail as a check that
+    recall is not doing the evidence's work.
+    """
+
+    def test_a_mega_cap_earnings_blowout_scores_high(self):
+        from swing.eval.contamination import score
+
+        r = score("AAPL", residual_z=5.3, earnings_mode=True)
+        assert r.score > 0.8 and not r.low
+        assert "mega-cap name" in r.reasons and "earnings day" in r.reasons
+
+    def test_an_obscure_small_move_scores_low(self):
+        from swing.eval.contamination import score
+
+        r = score("SNDK", residual_z=2.1, earnings_mode=False)
+        assert r.low, "a quiet move in a barely-covered name is unlikely to be recalled"
+
+    def test_prominence_outweighs_magnitude(self):
+        """An obscure ticker's big move still gets little ink, so it must not
+        outrank a mega-cap's ordinary one."""
+        from swing.eval.contamination import score
+
+        assert score("U", 6.0).score < score("TSLA", 2.5).score
+
+    def test_a_decimal_from_postgres_does_not_crash(self):
+        """residual_z arrives as Decimal; it will not mix with float arithmetic."""
+        from decimal import Decimal
+
+        from swing.eval.contamination import score
+
+        assert score("NVDA", Decimal("4.25")).score > 0
+
+    def test_an_unknown_ticker_is_treated_as_obscure(self):
+        from swing.eval.contamination import DEFAULT_PROMINENCE, score
+
+        assert score("ZZZZ", 2.0).score <= DEFAULT_PROMINENCE
+
+    def test_it_does_not_live_in_the_hashed_eval_file(self):
+        """Editing eval/placebo.py discards every accumulated Gate 4 case."""
+        from swing.common.versioning import HASHED_EVAL_CODE
+
+        assert "eval/contamination.py" not in HASHED_EVAL_CODE
+
+
+class TestAbstentionRunner:
+    def test_it_targets_only_unattributed_no_catalyst_swings(self):
+        import inspect
+
+        from swing.eval import abstention
+
+        src = inspect.getsource(abstention.pending)
+        assert "n.no_catalyst" in src
+        assert "run_kind = 'production'" in src
+        assert "NOT EXISTS" in src, "already-attributed swings must not be re-spent"
+
+    def test_it_stops_rather_than_burning_the_day_on_refusals(self):
+        import inspect
+
+        from swing.eval import abstention
+
+        assert abstention.MAX_CONSECUTIVE_FAILURES == 2
+        assert "llm_error" in inspect.getsource(abstention.run)
+
+
+class TestEarningsFiguresMatchTheFiling:
+    """Step 1.7's deltas are only worth having if they are the RIGHT quarter.
+
+    Both failures below shipped in the first draft and were caught by checking
+    the extraction against the company's own press-release text, which the
+    corpus already holds:
+
+      NVDA  release said $96.2 billion, extraction returned $3.10B from 2020
+      SNDK  release said $8.97 billion, extraction returned April's $5.95B
+    """
+
+    def _facts(self, concept_rows):
+        return {"facts": {"us-gaap": {c: {"units": {"USD": rows}}
+                                      for c, rows in concept_rows.items()}}}
+
+    def test_the_live_concept_wins_over_a_dead_one(self):
+        """NVDA abandoned one tag in 2020 and AAPL abandoned the other in 2018,
+        so "first concept with any rows" picks a dead series half the time."""
+        from datetime import date
+
+        from swing.analysis.earnings import _revenue
+
+        facts = self._facts({
+            "RevenueFromContractWithCustomerExcludingAssessedTax": [
+                {"start": "2019-10-28", "end": "2020-01-26", "val": 3_100_000_000}],
+            "Revenues": [
+                {"start": "2026-04-27", "end": "2026-07-26", "val": 96_220_000_000}],
+        })
+        rows = _revenue(facts, date(2026, 8, 26))
+        assert rows and rows[-1].value == 96_220_000_000, "must not serve the 2020 series"
+
+    def test_a_quarter_too_old_for_the_filing_is_refused(self):
+        """SNDK's fiscal Q4 is reported annually, so it is absent from quarterly
+        data. Returning the PRIOR quarter as though it were the announced one is
+        worse than returning nothing."""
+        from datetime import date
+
+        from swing.analysis.earnings import MAX_PERIOD_LAG_DAYS, _at_or_before, quarters
+
+        facts = self._facts({"Revenues": [
+            {"start": "2026-01-03", "end": "2026-04-03", "val": 5_950_000_000}]})
+        rows = quarters(facts, "Revenues")
+        latest = _at_or_before(rows, date(2026, 8, 5))
+        assert latest is not None
+        assert (date(2026, 8, 5) - latest.end).days > MAX_PERIOD_LAG_DAYS
+
+    def test_annual_durations_never_count_as_a_quarter(self):
+        from swing.analysis.earnings import quarters
+
+        facts = self._facts({"Revenues": [
+            {"start": "2025-08-29", "end": "2026-05-28", "val": 78_959_000_000},
+            {"start": "2026-02-27", "end": "2026-05-28", "val": 41_456_000_000},
+        ]})
+        rows = quarters(facts, "Revenues")
+        assert [r.value for r in rows] == [41_456_000_000], "9-month period must be dropped"
+
+    def test_the_sentence_never_implies_a_beat_or_miss(self):
+        """Consensus is paid, so the line must not read as surprise-vs-estimate."""
+        from datetime import date
+
+        from swing.analysis.earnings import Deltas
+
+        s = Deltas(ticker="NVDA", period_end=date(2026, 7, 26), revenue=96_220_000_000,
+                   revenue_qoq=0.08, revenue_yoy=0.62, eps=2.46, eps_qoq=0.11,
+                   gross_margin=0.732, gross_margin_prior=0.746).sentence()
+        assert "$96.22B" in s and "+62% YoY" in s
+        assert "not a beat or a miss" in s
+
+    def test_nothing_filed_yields_an_empty_string_not_a_guess(self):
+        from datetime import date
+
+        from swing.analysis.earnings import characterize
+
+        assert characterize("ZZZZ", date(2026, 1, 1)) == ""
+
+
+class TestEarningsFiguresReachThePrompt:
+    """Step 1.7 asks the agent to characterise a known catalyst. An instruction
+    alone cannot do that — it needs the filed numbers."""
+
+    def test_the_block_carries_the_figures(self, monkeypatch):
+        from datetime import date
+
+        from swing.agent import prompts
+
+        monkeypatch.setattr("swing.analysis.earnings.characterize",
+                            lambda t, d: "Revenue $96.22B, +62% YoY. Not a beat or a miss.")
+        block = prompts._earnings_block("NVDA", date(2026, 8, 27))
+        assert "Earnings mode" in block and "$96.22B" in block
+
+    def test_nothing_filed_degrades_to_the_plain_instruction(self, monkeypatch):
+        from datetime import date
+
+        from swing.agent import prompts
+
+        monkeypatch.setattr("swing.analysis.earnings.characterize", lambda t, d: "")
+        assert prompts._earnings_block("ZZZZ", date(2026, 8, 27)) == prompts.EARNINGS_INSTRUCTION
+
+    def test_an_sec_outage_never_fails_the_attribution(self, monkeypatch):
+        """A network error while building a prompt must not lose the answer."""
+        from datetime import date
+
+        from swing.agent import prompts
+
+        def boom(*_a, **_k):
+            raise ConnectionError("data.sec.gov unreachable")
+
+        monkeypatch.setattr("swing.analysis.earnings.characterize", boom)
+        assert prompts._earnings_block("NVDA", date(2026, 8, 27)) == prompts.EARNINGS_INSTRUCTION
+
+    def test_a_non_earnings_swing_gets_no_earnings_text(self):
+        import inspect
+
+        from swing.agent import prompts
+
+        src = inspect.getsource(prompts.render)
+        assert 'if swing["earnings_mode"] else ""' in src

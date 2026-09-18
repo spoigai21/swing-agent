@@ -2297,3 +2297,53 @@ slides still wins.
 
 Nine real EDGAR filenames are pinned in tests so the pattern cannot silently
 narrow again.
+
+### 16.31 Steps 1.7 and 4.4 built, and what the cross-check caught
+
+**Step 1.7 — characterise an earnings move (`analysis/earnings.py`).** Consensus
+estimates are paid, so this computes no surprise and says so in every line it
+emits. What is free is the company's own filed history: SEC XBRL `companyfacts`
+gives quarterly revenue, gross profit and diluted EPS, hence sequential and
+year-over-year deltas.
+
+⚠️ **The first draft was confidently wrong, and only a cross-check found it.**
+Validated against the press-release text the corpus already holds:
+
+    NVDA  release $96.2 billion   ->  extraction $3.10B, period ending 2020-01-26
+    SNDK  release $8.97 billion   ->  extraction $5.95B, the PRIOR quarter
+    AAPL  release $109.4 billion  ->  extraction $109.42B   (the only correct one)
+
+Two distinct defects, both silent:
+
+1. **Dead-series selection.** Issuers disagree about which tag to use and each
+   abandons the other mid-history — NVDA's `Revenues` is current while its
+   specific concept stops in 2020; AAPL is the exact reverse, stopping in 2018.
+   "First concept with any rows" therefore picks a dead series about half the
+   time. Now the series with coverage nearest the filing date wins.
+2. **Stale-quarter substitution.** SNDK reports fiscal Q4 annually, so it is
+   absent from quarterly-duration data, and a 200-day tolerance happily returned
+   April's figure as the announced quarter. The tolerance is now 100 days — one
+   quarter — and the result is `None`. **A wrong number presented as this
+   quarter's is worse than silence.**
+
+Both are pinned by tests using the press-release figures as ground truth. AMZN
+and F return nothing because they are related companies with no CIK mapped,
+which is correct; QCOM's "$40 billion" is a phrase in the CEO's quote, not
+revenue.
+
+**Step 4.4 — contamination as a diagnostic (`eval/contamination.py`).** The
+second mitigation was already in place: the placebo test is primary and cannot be
+passed by recall. This adds the first — ranking annotated swings by how heavily
+they were written about, so metrics can be read on the obscure tail.
+
+    68 annotated swings, mean risk 0.542 — 25 low risk, 43 high
+    highest: AAPL/GOOGL/TSLA/NVDA earnings-day moves at |z| 4.3-7.0
+
+⚠️ A heuristic proxy for press volume, not a measurement of memorisation, and
+nothing can measure that directly. ⚠️ Deliberately NOT placed in
+`eval/placebo.py`, which is hashed into `eval_hash` — putting it there would have
+discarded all 24 accumulated Gate 4 cases.
+
+**`eval/abstention.py`** targets the 13 annotated no-catalyst swings that have no
+production attribution, which is why `abstention precision` reads `n/a`. The
+query was never broken, only starved. Quota-blocked until tomorrow.

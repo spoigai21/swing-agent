@@ -21,6 +21,33 @@ forward-looking commentary is the driver.
 """.strip()
 
 
+def _earnings_block(ticker: str, day) -> str:
+    """The earnings instruction, plus the company's own filed figures.
+
+    Step 1.7 asks the agent to CHARACTERISE a known catalyst, which it cannot do
+    from an instruction alone — it needs the numbers. These come from SEC XBRL
+    (`analysis.earnings`) and are the company's own filings, never a consensus
+    comparison, which is why the line says so explicitly.
+
+    ⚠️ Never raises: an SEC outage must not fail an attribution. Without figures
+    the model still gets the instruction, which is what it had before.
+    """
+    try:
+        from swing.analysis.earnings import characterize
+
+        filed = characterize(ticker, day)
+    except Exception:  # noqa: BLE001 - a prompt build must never lose an answer
+        # Narrowing is the house style where failures are enumerable, but this
+        # path can raise httpx transport errors, _raise_for_retryable, JSON
+        # ValueError, cache OSError or an unmapped-CIK KeyError. Missing one
+        # member of that list would turn a prompt build into a lost attribution,
+        # so breadth is deliberate here — as in batch.py and cli.py.
+        filed = ""
+    if not filed:
+        return EARNINGS_INSTRUCTION
+    return f"{EARNINGS_INSTRUCTION}\n\nFiled figures for this quarter: {filed}"
+
+
 @lru_cache(maxsize=8)
 def load(version: str | None = None) -> tuple[str, str]:
     """Return (version, template). Defaults to the highest-numbered version."""
@@ -104,5 +131,6 @@ def render(swing: dict, decomposition_sentence: str,
         earnings_mode=swing["earnings_mode"],
         pre_clusters=_fmt_clusters(pre, own, swing["onset_ts"]),
         post_clusters=_fmt_clusters(post, own, swing["onset_ts"]),
-        earnings_instruction=EARNINGS_INSTRUCTION if swing["earnings_mode"] else "",
+        earnings_instruction=(_earnings_block(swing["ticker"], swing["d"])
+                              if swing["earnings_mode"] else ""),
     )
