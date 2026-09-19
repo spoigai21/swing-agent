@@ -330,3 +330,39 @@ class TestAbstentionIsQueuedBeforePlacebo:
         from swing.ingest.collector import build_jobs
 
         assert "scheduled-abstention" in {j.name for j in build_jobs()}
+
+
+class TestAccuracyIsQueuedToo:
+    """Gate 4's bar already passes at n=34; attribution accuracy sits at n=3 and
+    needs n=11 to establish >0.70. These requests buy more than a 35th placebo."""
+
+    def test_the_eval_metrics_run_before_the_placebo_batch(self):
+        assert s.ABSTENTION_AT_PT < s.ACCURACY_AT_PT < s.PLACEBO_AT_PT
+
+    def test_it_is_a_no_op_once_nothing_is_pending(self, tmp_path, monkeypatch):
+        import pytest
+
+        from swing.eval import accuracy
+
+        monkeypatch.setattr(s, "DATA", tmp_path)
+        monkeypatch.setattr(accuracy, "pending", list)
+        monkeypatch.setattr(accuracy, "run",
+                            lambda **k: pytest.fail("must not spend quota when done"))
+        now = datetime(2026, 9, 20, s.ACCURACY_AT_PT.hour, s.ACCURACY_AT_PT.minute,
+                       tzinfo=s.PT) + timedelta(minutes=5)
+        assert s.accuracy_if_due(now) == 0
+
+    def test_it_targets_only_swings_with_a_known_catalyst(self):
+        import inspect
+
+        from swing.eval import accuracy
+
+        src = inspect.getsource(accuracy.pending)
+        assert "NOT n.no_catalyst" in src, "no-catalyst swings belong to abstention"
+        assert "cardinality(n.true_article_ids)" in src, "needs a label to score against"
+        assert "NOT EXISTS" in src, "already-attributed swings must not be re-spent"
+
+    def test_the_collector_actually_runs_it(self):
+        from swing.ingest.collector import build_jobs
+
+        assert "scheduled-accuracy" in {j.name for j in build_jobs()}

@@ -46,6 +46,11 @@ PLACEBO_AT_PT = time(21, 0)         # after the close; quota resets at midnight 
 # self-terminating: once those 13 swings have a production attribution,
 # `pending()` is empty and this becomes a no-op forever.
 ABSTENTION_AT_PT = time(0, 5)
+# Attribution accuracy is the metric that says the answers are RIGHT, and it is
+# the thinnest: 3-of-3 is consistent with a true rate of 29%, under its 0.70
+# target. Runs after abstention so the two eval metrics get the fresh quota
+# before the 21:00 placebo batch, and self-terminates the same way.
+ACCURACY_AT_PT = time(0, 20)
 DAILY_ATTRIBUTIONS = 0              # push: alerts still send and cost no quota
 DAILY_MODEL_QUOTA = 20              # free-tier Gemini, per model per day (agent/llm.py)
 INTERACTIVE_RESERVE = 0             # push: the 21:00 slot is the protection
@@ -121,6 +126,28 @@ def abstention_if_due(now: datetime | None = None) -> int:
     mark("abstention", day)
     result = run()
     logger.info("scheduled abstention for %s: %s", day, result)
+    return 0
+
+
+def accuracy_if_due(now: datetime | None = None) -> int:
+    """Attribute annotated swings that have a known catalyst, once each.
+
+    Gate 4 measures honesty; this measures correctness. Its bar (>0.70) needs
+    n=11 to be established at 95% confidence and sits at n=3, while Gate 4's bar
+    already passes at n=34 — so these requests buy more than the 35th placebo.
+    """
+    day = due(now or datetime.now(UTC), PT, ACCURACY_AT_PT, last_run("accuracy"),
+              weekdays_only=False)
+    if day is None:
+        return 0
+
+    from swing.eval.accuracy import pending, run
+
+    if not pending():
+        return 0
+    mark("accuracy", day)
+    result = run()
+    logger.info("scheduled accuracy for %s: %s", day, result)
     return 0
 
 

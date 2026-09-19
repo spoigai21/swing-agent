@@ -98,6 +98,8 @@ def build_jobs() -> list[Job]:
     jobs.append(Job(name="scheduled-daily", interval=900.0, fn=schedule.daily_if_due))
     jobs.append(Job(name="scheduled-abstention", interval=900.0,
                     fn=schedule.abstention_if_due))
+    jobs.append(Job(name="scheduled-accuracy", interval=900.0,
+                    fn=schedule.accuracy_if_due))
     jobs.append(Job(name="scheduled-placebo", interval=900.0, fn=schedule.placebo_if_due))
     return jobs
 
@@ -124,9 +126,10 @@ def run(once: bool = False) -> int:
     from swing.interface import schedule as sched
 
     logger.info(
-        "schedule in force: abstention %s PT, placebo %s PT x%d, batch %s ET x%d, "
+        "schedule in force: abstention %s PT, accuracy %s PT, placebo %s PT x%d, batch %s ET x%d, "
         "reserve %d of %d/day",
-        sched.ABSTENTION_AT_PT, sched.PLACEBO_AT_PT, sched.NIGHTLY_PLACEBO_CASES,
+        sched.ABSTENTION_AT_PT, sched.ACCURACY_AT_PT, sched.PLACEBO_AT_PT,
+        sched.NIGHTLY_PLACEBO_CASES,
         sched.DAILY_AT_ET, sched.DAILY_ATTRIBUTIONS, sched.INTERACTIVE_RESERVE,
         sched.DAILY_MODEL_QUOTA,
     )
