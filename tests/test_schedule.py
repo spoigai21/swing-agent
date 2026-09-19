@@ -290,3 +290,43 @@ class TestDailyCapIsNotWorthRetrying:
         from swing.agent import llm
 
         assert llm._is_transient(RuntimeError("503 UNAVAILABLE high demand"))
+
+
+class TestAbstentionIsQueuedBeforePlacebo:
+    """13 calls converts the only gate metric that has never produced a number.
+    It must get first claim on the fresh quota, or the 21:00 placebo batch takes
+    the whole day and it waits forever."""
+
+    def test_it_runs_before_the_placebo_batch(self):
+        assert s.ABSTENTION_AT_PT < s.PLACEBO_AT_PT
+
+    def test_it_is_a_no_op_once_nothing_is_pending(self, tmp_path, monkeypatch):
+        import pytest
+
+        from swing.eval import abstention
+
+        monkeypatch.setattr(s, "DATA", tmp_path)
+        monkeypatch.setattr(abstention, "pending", list)
+        monkeypatch.setattr(abstention, "run",
+                            lambda **k: pytest.fail("must not spend quota when done"))
+        now = datetime(2026, 9, 20, s.ABSTENTION_AT_PT.hour, s.ABSTENTION_AT_PT.minute,
+                       tzinfo=s.PT) + timedelta(minutes=10)
+        assert s.abstention_if_due(now) == 0
+
+    def test_it_runs_when_swings_are_pending(self, tmp_path, monkeypatch):
+        from swing.eval import abstention
+
+        called = {}
+        monkeypatch.setattr(s, "DATA", tmp_path)
+        monkeypatch.setattr(abstention, "pending", lambda: [1, 2, 3])
+        monkeypatch.setattr(abstention, "run",
+                            lambda **k: called.setdefault("ran", True) or {"attributed": 3})
+        now = datetime(2026, 9, 20, s.ABSTENTION_AT_PT.hour, s.ABSTENTION_AT_PT.minute,
+                       tzinfo=s.PT) + timedelta(minutes=10)
+        s.abstention_if_due(now)
+        assert called.get("ran"), "pending swings must be attributed"
+
+    def test_the_collector_actually_runs_it(self):
+        from swing.ingest.collector import build_jobs
+
+        assert "scheduled-abstention" in {j.name for j in build_jobs()}

@@ -40,6 +40,12 @@ DAILY_AT_ET = time(16, 45)          # the daily bar has settled by then
 # Restore normal operation: time(0, 30), DAILY_ATTRIBUTIONS 3,
 # INTERACTIVE_RESERVE 5, NIGHTLY_PLACEBO_CASES = quota - batch - reserve.
 PLACEBO_AT_PT = time(21, 0)         # after the close; quota resets at midnight PT
+# Abstention precision is the only gate metric that has never produced a number,
+# and it needs just 13 calls. Run it at 00:05 PT, right after the quota resets,
+# so it gets first claim before the 21:00 placebo batch takes the day. It is
+# self-terminating: once those 13 swings have a production attribution,
+# `pending()` is empty and this becomes a no-op forever.
+ABSTENTION_AT_PT = time(0, 5)
 DAILY_ATTRIBUTIONS = 0              # push: alerts still send and cost no quota
 DAILY_MODEL_QUOTA = 20              # free-tier Gemini, per model per day (agent/llm.py)
 INTERACTIVE_RESERVE = 0             # push: the 21:00 slot is the protection
@@ -91,6 +97,30 @@ def daily_if_due(now: datetime | None = None) -> int:
                     attribute_since=day - timedelta(days=3))
     alerts = alert.send(days=1)
     logger.info("scheduled daily run for %s: %s; %d alert(s)", day, res.summary(), alerts)
+    return 0
+
+
+def abstention_if_due(now: datetime | None = None) -> int:
+    """Attribute the annotated no-catalyst swings, once.
+
+    These are swings a human researched and concluded had no findable cause, so
+    `unexplained` is the right answer and a failure to abstain is exactly what
+    `harness.abstention_precision` exists to catch. Gate 4 cannot see this
+    failure: its placebo cases are shown DONOR evidence, whereas these are real
+    swings with their own real (uninformative) news.
+    """
+    day = due(now or datetime.now(UTC), PT, ABSTENTION_AT_PT, last_run("abstention"),
+              weekdays_only=False)
+    if day is None:
+        return 0
+
+    from swing.eval.abstention import pending, run
+
+    if not pending():
+        return 0            # already done; nothing to spend quota on
+    mark("abstention", day)
+    result = run()
+    logger.info("scheduled abstention for %s: %s", day, result)
     return 0
 
 
