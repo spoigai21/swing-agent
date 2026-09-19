@@ -261,3 +261,32 @@ class TestRefusedRequestsAreNotCharged:
         llm = self._ledger(tmp_path, monkeypatch)
         llm.record_call(-5)
         assert llm.spent_today() == 0
+
+
+class TestDailyCapIsNotWorthRetrying:
+    """A per-minute refusal clears in seconds; a per-day one clears at midnight.
+    Treating them alike burned three attempts per failure on a 20-request
+    budget — 2026-09-19 stored 7 cases from a full day."""
+
+    def test_a_daily_cap_is_not_transient(self):
+        from swing.agent import llm
+
+        exc = RuntimeError(
+            "429 RESOURCE_EXHAUSTED ... 'quotaId': "
+            "'GenerateRequestsPerDayPerProjectPerModel-FreeTier', 'quotaValue': '20'")
+        assert llm.is_daily_cap(exc)
+        assert not llm._is_transient(exc), "retrying until midnight is futile"
+
+    def test_a_per_minute_refusal_is_still_retried(self):
+        from swing.agent import llm
+
+        exc = RuntimeError(
+            "429 RESOURCE_EXHAUSTED ... 'quotaId': "
+            "'GenerateRequestsPerMinutePerProjectPerModel-FreeTier', 'quotaValue': '5'")
+        assert not llm.is_daily_cap(exc)
+        assert llm._is_transient(exc), "RPM clears in seconds and is worth waiting for"
+
+    def test_overload_is_still_retried(self):
+        from swing.agent import llm
+
+        assert llm._is_transient(RuntimeError("503 UNAVAILABLE high demand"))

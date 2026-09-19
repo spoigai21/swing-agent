@@ -25,6 +25,7 @@ from zoneinfo import ZoneInfo
 
 from tenacity import retry, retry_if_exception, stop_after_attempt, wait_exponential
 
+from swing.common import logging as log
 from swing.common.http import _RateLimiter
 from swing.common.settings import REPO_ROOT, get_settings
 
@@ -37,10 +38,41 @@ LLM_MIN_INTERVAL = 13.0
 _llm_limiter = _RateLimiter(LLM_MIN_INTERVAL)
 
 
+logger = log.get("agent.llm")
+
+
+# Google names the quota it refused on. The per-MINUTE one clears in seconds and
+# is worth waiting for; the per-DAY one does not return until midnight Pacific,
+# so retrying it burns two more attempts and up to 45s of backoff for nothing.
+DAILY_QUOTA_MARKER = "GenerateRequestsPerDayPerProjectPerModel"
+
+
+def is_daily_cap(exc: BaseException) -> bool:
+    return DAILY_QUOTA_MARKER in str(exc)
+
+
 def _is_transient(exc: BaseException) -> bool:
-    """Rate limits (429) and overload (503). Both usually clear quickly."""
+    """Rate limits (429) and overload (503). Both usually clear quickly.
+
+    ⚠️ Except a DAILY cap, which clears at midnight PT. On 2026-09-19 a fresh
+    20-request day produced only 7 stored cases; every failure was the daily
+    quota, and each was retried three times because this could not tell the two
+    429s apart.
+    """
+    if is_daily_cap(exc):
+        return False
     text = str(exc)
     return any(s in text for s in ("429", "RESOURCE_EXHAUSTED", "503", "UNAVAILABLE"))
+
+
+def _log_attempt(state) -> None:
+    """Make the request:case ratio visible.
+
+    A 20-request day yielded 7 stored cases and the gap could not be accounted
+    for, because nothing recorded how many requests one case actually costs.
+    """
+    logger.info("llm retry %d after %s", state.attempt_number,
+                type(state.outcome.exception()).__name__ if state.outcome else "?")
 
 
 # ---------------------------------------------------------------- quota ledger
@@ -107,6 +139,7 @@ def record_call(n: int = 1) -> int:
     # guaranteed the retry failed too, so two refusals ended the batch.
     wait=wait_exponential(multiplier=2, min=5, max=45),
     stop=stop_after_attempt(3),
+    before_sleep=_log_attempt,
     reraise=True,
 )
 def invoke_with_retry(runnable, prompt: str):
