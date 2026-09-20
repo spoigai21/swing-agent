@@ -105,8 +105,54 @@ def daily_if_due(now: datetime | None = None) -> int:
     return 0
 
 
+# ⚠️ These two jobs must NOT use a once-a-day marker. On 2026-09-20 both marked
+# the day done before running, then attributed zero because the model returned
+# 503 "high demand" and read timeouts — sidelining them for the rest of a day
+# that still had 10 requests left. `pending()` is the natural terminator: when
+# the swings are attributed there is nothing to do. A minimum gap between
+# attempts stops a bad hour from spinning through the quota.
+RETRY_GAP = timedelta(minutes=60)
+
+
+def _attempt_path(name: str):
+    return DATA / f".last_attempt_{name}"
+
+
+def _may_attempt(name: str, now: datetime) -> bool:
+    # ⚠️ The timestamp is written INTO the file, not taken from its mtime. These
+    # functions are driven by a passed-in `now`, and mtime is wall-clock, so the
+    # two disagree wherever the caller supplies a time — which is every test.
+    path = _attempt_path(name)
+    try:
+        last = datetime.fromisoformat(path.read_text().strip())
+    except (OSError, ValueError):
+        return True
+    return (now - last) >= RETRY_GAP
+
+
+def _record_attempt(name: str, now: datetime) -> None:
+    path = _attempt_path(name)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(now.isoformat())
+
+
+def _eval_job_due(name: str, at, now: datetime | None, pending, run) -> int:
+    """Run an eval backlog job: after `at`, at most hourly, until nothing pends."""
+    now = now or datetime.now(UTC)
+    if now.astimezone(PT).time() < at:
+        return 0
+    if not pending():
+        return 0                      # finished; nothing left to spend quota on
+    if not _may_attempt(name, now):
+        return 0
+    _record_attempt(name, now)
+    result = run()
+    logger.info("scheduled %s: %s", name, result)
+    return 0
+
+
 def abstention_if_due(now: datetime | None = None) -> int:
-    """Attribute the annotated no-catalyst swings, once.
+    """Attribute the annotated no-catalyst swings until none are left.
 
     These are swings a human researched and concluded had no findable cause, so
     `unexplained` is the right answer and a failure to abstain is exactly what
@@ -114,41 +160,21 @@ def abstention_if_due(now: datetime | None = None) -> int:
     failure: its placebo cases are shown DONOR evidence, whereas these are real
     swings with their own real (uninformative) news.
     """
-    day = due(now or datetime.now(UTC), PT, ABSTENTION_AT_PT, last_run("abstention"),
-              weekdays_only=False)
-    if day is None:
-        return 0
-
     from swing.eval.abstention import pending, run
 
-    if not pending():
-        return 0            # already done; nothing to spend quota on
-    mark("abstention", day)
-    result = run()
-    logger.info("scheduled abstention for %s: %s", day, result)
-    return 0
+    return _eval_job_due("abstention", ABSTENTION_AT_PT, now, pending, run)
 
 
 def accuracy_if_due(now: datetime | None = None) -> int:
-    """Attribute annotated swings that have a known catalyst, once each.
+    """Attribute annotated swings that have a known catalyst, until none remain.
 
     Gate 4 measures honesty; this measures correctness. Its bar (>0.70) needs
     n=11 to be established at 95% confidence and sits at n=3, while Gate 4's bar
     already passes at n=34 — so these requests buy more than the 35th placebo.
     """
-    day = due(now or datetime.now(UTC), PT, ACCURACY_AT_PT, last_run("accuracy"),
-              weekdays_only=False)
-    if day is None:
-        return 0
-
     from swing.eval.accuracy import pending, run
 
-    if not pending():
-        return 0
-    mark("accuracy", day)
-    result = run()
-    logger.info("scheduled accuracy for %s: %s", day, result)
-    return 0
+    return _eval_job_due("accuracy", ACCURACY_AT_PT, now, pending, run)
 
 
 def placebo_if_due(now: datetime | None = None) -> int:

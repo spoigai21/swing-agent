@@ -366,3 +366,64 @@ class TestAccuracyIsQueuedToo:
         from swing.ingest.collector import build_jobs
 
         assert "scheduled-accuracy" in {j.name for j in build_jobs()}
+
+
+class TestAFailedEvalRunDoesNotBurnTheDay:
+    """2026-09-20: both eval jobs marked the day done BEFORE running, then
+    attributed zero because the model returned 503 "high demand" and read
+    timeouts. That sidelined them for a day that still had 10 requests left.
+    pending() is the terminator; a retry gap stops a bad hour from spinning."""
+
+    def test_a_run_that_attributes_nothing_can_retry_later(self, tmp_path, monkeypatch):
+        from swing.eval import abstention
+
+        calls = []
+        monkeypatch.setattr(s, "DATA", tmp_path)
+        monkeypatch.setattr(abstention, "pending", lambda: [1, 2, 3])
+        monkeypatch.setattr(abstention, "run",
+                            lambda **k: calls.append(1) or {"attributed": 0})
+
+        first = datetime(2026, 9, 20, 1, 0, tzinfo=s.PT)
+        s.abstention_if_due(first)
+        assert len(calls) == 1
+        # An hour later it must try again — the day is not spent.
+        s.abstention_if_due(first + timedelta(minutes=61))
+        assert len(calls) == 2, "a failed run must not sideline the whole day"
+
+    def test_it_does_not_spin_within_the_retry_gap(self, tmp_path, monkeypatch):
+        from swing.eval import abstention
+
+        calls = []
+        monkeypatch.setattr(s, "DATA", tmp_path)
+        monkeypatch.setattr(abstention, "pending", lambda: [1])
+        monkeypatch.setattr(abstention, "run",
+                            lambda **k: calls.append(1) or {"attributed": 0})
+
+        start = datetime(2026, 9, 20, 1, 0, tzinfo=s.PT)
+        s.abstention_if_due(start)
+        s.abstention_if_due(start + timedelta(minutes=15))
+        s.abstention_if_due(start + timedelta(minutes=30))
+        assert len(calls) == 1, "15-minute ticks must not each spend quota"
+
+    def test_an_empty_backlog_stops_it_for_good(self, tmp_path, monkeypatch):
+        import pytest
+
+        from swing.eval import accuracy
+
+        monkeypatch.setattr(s, "DATA", tmp_path)
+        monkeypatch.setattr(accuracy, "pending", list)
+        monkeypatch.setattr(accuracy, "run",
+                            lambda **k: pytest.fail("nothing pending: must not spend"))
+        assert s.accuracy_if_due(datetime(2026, 9, 20, 6, 0, tzinfo=s.PT)) == 0
+
+    def test_nothing_runs_before_its_slot(self, tmp_path, monkeypatch):
+        import pytest
+
+        from swing.eval import abstention
+
+        monkeypatch.setattr(s, "DATA", tmp_path)
+        monkeypatch.setattr(abstention, "pending", lambda: [1])
+        monkeypatch.setattr(abstention, "run",
+                            lambda **k: pytest.fail("too early"))
+        before = datetime(2026, 9, 20, 0, 1, tzinfo=s.PT)
+        assert s.abstention_if_due(before) == 0
