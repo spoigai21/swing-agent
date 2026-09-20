@@ -2380,3 +2380,23 @@ Two things also came out of this:
   `note_daily_cap()` pins the ledger to the full quota when Google refuses, so
   everything that sizes work from `remaining_today()` stops guessing. The ledger
   counts this process's attempts and had drifted to 24 on a 20-request day.
+
+### §16.33 End the Gate 4 push
+
+The 2026-09-16 push set `DAILY_ATTRIBUTIONS = 0` and `INTERACTIVE_RESERVE = 0`
+and let the nightly placebo batch take all 20 requests, on the premise that
+Gate 4 was blocking. It is not. Its bar is confabulation < 10%, and 0 failures
+in 34 cases puts the upper bound at 8.4% — the gate already passes, and the
+remaining 164 cases only narrow an interval nothing waits on.
+
+Restored: 3 for the post-close batch, 5 held for being asked a live question,
+12 (`EVAL_BUDGET`) for the eval backlog, and placebo takes whatever survives to
+21:00 — nothing, on a day the backlog uses its budget. That ordering is the
+point: attribution accuracy is n=4 and abstention precision is n=2.
+
+The ceiling has to exist at **both** ends of the clock. Placebo at 00:30 with no
+reserve spent the day before breakfast and left `swing` answering
+`model_unavailable`; the 00:05 and 00:20 eval jobs, with a 46-case backlog and
+no `limit`, were about to do the identical thing from the other direction.
+`eval_budget_left()` is `remaining_today()` minus the batch and the reserve, so
+the two eval jobs share one ceiling and the reserve is never theirs to spend.

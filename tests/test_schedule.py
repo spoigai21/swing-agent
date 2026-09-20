@@ -318,6 +318,7 @@ class TestAbstentionIsQueuedBeforePlacebo:
 
         called = {}
         monkeypatch.setattr(s, "DATA", tmp_path)
+        monkeypatch.setattr(s, "eval_budget_left", lambda: 8)
         monkeypatch.setattr(abstention, "pending", lambda: [1, 2, 3])
         monkeypatch.setattr(abstention, "run",
                             lambda **k: called.setdefault("ran", True) or {"attributed": 3})
@@ -379,6 +380,7 @@ class TestAFailedEvalRunDoesNotBurnTheDay:
 
         calls = []
         monkeypatch.setattr(s, "DATA", tmp_path)
+        monkeypatch.setattr(s, "eval_budget_left", lambda: 8)
         monkeypatch.setattr(abstention, "pending", lambda: [1, 2, 3])
         monkeypatch.setattr(abstention, "run",
                             lambda **k: calls.append(1) or {"attributed": 0})
@@ -395,6 +397,7 @@ class TestAFailedEvalRunDoesNotBurnTheDay:
 
         calls = []
         monkeypatch.setattr(s, "DATA", tmp_path)
+        monkeypatch.setattr(s, "eval_budget_left", lambda: 8)
         monkeypatch.setattr(abstention, "pending", lambda: [1])
         monkeypatch.setattr(abstention, "run",
                             lambda **k: calls.append(1) or {"attributed": 0})
@@ -422,8 +425,60 @@ class TestAFailedEvalRunDoesNotBurnTheDay:
         from swing.eval import abstention
 
         monkeypatch.setattr(s, "DATA", tmp_path)
+        monkeypatch.setattr(s, "eval_budget_left", lambda: 8)
         monkeypatch.setattr(abstention, "pending", lambda: [1])
         monkeypatch.setattr(abstention, "run",
                             lambda **k: pytest.fail("too early"))
         before = datetime(2026, 9, 20, 0, 1, tzinfo=s.PT)
         assert s.abstention_if_due(before) == 0
+
+
+class TestTheDayIsNotSpentBeforeYouAskAQuestion:
+    """The 2026-09-16 push set DAILY_ATTRIBUTIONS and INTERACTIVE_RESERVE to 0
+    and let placebo take all 20, because Gate 4 looked blocking. It is not —
+    0 confabulations in 34 cases already clears its < 10% bar — so the agent
+    answering the day's questions gets its budget back.
+
+    The ceiling matters at BOTH ends of the clock. Placebo at 00:30 with no
+    reserve spent the day before breakfast; the 00:05 and 00:20 eval jobs, with
+    a 46-case backlog and no limit, would do exactly the same thing.
+    """
+
+    def test_the_reserve_is_never_allocated(self):
+        assert s.INTERACTIVE_RESERVE > 0, "being asked and having nothing left is the worst case"
+        assert s.EVAL_BUDGET + s.DAILY_ATTRIBUTIONS + s.INTERACTIVE_RESERVE \
+            == s.DAILY_MODEL_QUOTA
+        assert s.NIGHTLY_PLACEBO_CASES <= s.EVAL_BUDGET
+
+    def test_an_eval_job_takes_only_what_is_budgeted(self, tmp_path, monkeypatch):
+        from swing.eval import accuracy
+
+        limits = []
+        monkeypatch.setattr(s, "DATA", tmp_path)
+        monkeypatch.setattr(s, "eval_budget_left", lambda: 6)
+        monkeypatch.setattr(accuracy, "pending", lambda: list(range(35)))
+        monkeypatch.setattr(accuracy, "run",
+                            lambda limit=None: limits.append(limit) or {"attributed": limit})
+        s.accuracy_if_due(datetime(2026, 9, 20, 1, 0, tzinfo=s.PT))
+        assert limits == [6], "a 35-case backlog must not eat the whole day"
+
+    def test_it_does_not_run_at_all_once_only_the_reserve_is_left(
+            self, tmp_path, monkeypatch):
+        import pytest
+
+        from swing.eval import accuracy
+
+        monkeypatch.setattr(s, "DATA", tmp_path)
+        monkeypatch.setattr(s, "eval_budget_left", lambda: 0)
+        monkeypatch.setattr(accuracy, "pending", lambda: [1, 2, 3])
+        monkeypatch.setattr(accuracy, "run",
+                            lambda **k: pytest.fail("the reserve is not the eval jobs' to spend"))
+        assert s.accuracy_if_due(datetime(2026, 9, 20, 1, 0, tzinfo=s.PT)) == 0
+
+    def test_the_budget_subtracts_what_the_day_already_spent(self, monkeypatch):
+        from swing.agent import llm
+
+        monkeypatch.setattr(llm, "remaining_today", lambda: 20)
+        assert s.eval_budget_left() == s.EVAL_BUDGET
+        monkeypatch.setattr(llm, "remaining_today", lambda: 4)
+        assert s.eval_budget_left() == 0, "4 left is the reserve, not eval budget"

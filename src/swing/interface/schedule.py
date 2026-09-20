@@ -34,11 +34,9 @@ logger = log.get("interface.schedule")
 ET = ZoneInfo("America/New_York")
 PT = ZoneInfo("America/Los_Angeles")
 DAILY_AT_ET = time(16, 45)          # the daily bar has settled by then
-# ⚠️ GATE 4 PUSH (2026-09-16). Placebo runs LATE, not at 00:30, so the day's
-# questions are served first and Gate 4 sweeps up whatever quota is left.
-# At 00:30 with no reserve it would take all 20 before you were awake.
-# Restore normal operation: time(0, 30), DAILY_ATTRIBUTIONS 3,
-# INTERACTIVE_RESERVE 5, NIGHTLY_PLACEBO_CASES = quota - batch - reserve.
+# Placebo runs LATE, not at 00:30, so the day's questions are served first and
+# Gate 4 sweeps up whatever quota is left. At 00:30 with no reserve it took all
+# 20 before you were awake, and `swing` could only answer `model_unavailable`.
 PLACEBO_AT_PT = time(21, 0)         # after the close; quota resets at midnight PT
 # Abstention precision is the only gate metric that has never produced a number,
 # and it needs just 13 calls. Run it at 00:05 PT, right after the quota resets,
@@ -51,17 +49,31 @@ ABSTENTION_AT_PT = time(0, 5)
 # target. Runs after abstention so the two eval metrics get the fresh quota
 # before the 21:00 placebo batch, and self-terminates the same way.
 ACCURACY_AT_PT = time(0, 20)
-DAILY_ATTRIBUTIONS = 0              # push: alerts still send and cost no quota
 DAILY_MODEL_QUOTA = 20              # free-tier Gemini, per model per day (agent/llm.py)
-INTERACTIVE_RESERVE = 0             # push: the 21:00 slot is the protection
-# Gate 4 gets what is left after the daily batch and the interactive reserve.
-# This was 17, which with DAILY_ATTRIBUTIONS came to exactly the 20-request day
-# and starved every live question: the placebo batch fires at 00:30 PT, so the
-# whole budget was spent on evaluation before breakfast and `swing` could only
-# answer `model_unavailable`. Gate 4 is quota-bound either way; being asked a
-# question and having nothing left is the worse failure.
-NIGHTLY_PLACEBO_CASES = DAILY_MODEL_QUOTA   # push: take everything still unspent
+# ⚠️ The 2026-09-16 Gate 4 push set both of these to 0 and let placebo take all
+# 20, on the grounds that Gate 4 was blocking. It is not: its bar is
+# confabulation < 10%, and 0 failures in 34 cases already clears it at 95%
+# confidence. Nothing waits on the remaining 164 cases, so the agent answering
+# the day's actual questions comes first again.
+DAILY_ATTRIBUTIONS = 3              # the post-close run's own attributions
+INTERACTIVE_RESERVE = 5             # never spend these; they are for being asked
+# What the 00:05 and 00:20 eval jobs may take from a fresh day. They run before
+# anything else, so without a ceiling the first one with a backlog takes all 20
+# — exactly the failure the push created at the other end of the clock.
+EVAL_BUDGET = DAILY_MODEL_QUOTA - DAILY_ATTRIBUTIONS - INTERACTIVE_RESERVE
+# Gate 4 gets what is genuinely left at 21:00, which is nothing on a day the
+# eval backlog used its budget. That ordering is deliberate: attribution
+# accuracy (n=4) and abstention precision (n=2) are the thin metrics, and Gate 4
+# already passes.
+NIGHTLY_PLACEBO_CASES = EVAL_BUDGET
 GATE4_CASES = 200                   # agent-plan.md 4.3
+
+
+def eval_budget_left() -> int:
+    """Requests the eval jobs may still spend today, reserve untouched."""
+    from swing.agent.llm import remaining_today
+
+    return max(0, remaining_today() - DAILY_ATTRIBUTIONS - INTERACTIVE_RESERVE)
 
 
 def due(now: datetime, zone: ZoneInfo, at: time, last_run: date | None,
@@ -145,8 +157,11 @@ def _eval_job_due(name: str, at, now: datetime | None, pending, run) -> int:
         return 0                      # finished; nothing left to spend quota on
     if not _may_attempt(name, now):
         return 0
+    budget = eval_budget_left()
+    if budget <= 0:
+        return 0                      # the reserve is not the eval jobs' to spend
     _record_attempt(name, now)
-    result = run()
+    result = run(limit=budget)
     logger.info("scheduled %s: %s", name, result)
     return 0
 

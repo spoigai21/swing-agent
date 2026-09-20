@@ -126,10 +126,10 @@ def run(once: bool = False) -> int:
     from swing.interface import schedule as sched
 
     logger.info(
-        "schedule in force: abstention %s PT, accuracy %s PT, placebo %s PT x%d, batch %s ET x%d, "
-        "reserve %d of %d/day",
-        sched.ABSTENTION_AT_PT, sched.ACCURACY_AT_PT, sched.PLACEBO_AT_PT,
-        sched.NIGHTLY_PLACEBO_CASES,
+        "schedule in force: abstention %s PT, accuracy %s PT (eval budget %d), "
+        "placebo %s PT x%d, batch %s ET x%d, reserve %d of %d/day",
+        sched.ABSTENTION_AT_PT, sched.ACCURACY_AT_PT, sched.EVAL_BUDGET,
+        sched.PLACEBO_AT_PT, sched.NIGHTLY_PLACEBO_CASES,
         sched.DAILY_AT_ET, sched.DAILY_ATTRIBUTIONS, sched.INTERACTIVE_RESERVE,
         sched.DAILY_MODEL_QUOTA,
     )
