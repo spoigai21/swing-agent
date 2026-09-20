@@ -16,7 +16,8 @@ never been asked, so the shortfall is spent quota, not missing labels.
 
 ⚠️ Spends metered Gemini quota (free tier: 20/day), the same pool Gate 4 draws
 on. Gate 4's own bar already passes at n=34, so this is the better use of it.
-Stops after two consecutive failures rather than burning the day on refusals.
+One request per case, no retries, and it stops the moment the API itself
+says the day is spent — see llm.batch_mode.
 """
 from __future__ import annotations
 
@@ -24,7 +25,11 @@ from swing.common import logging as log
 
 logger = log.get("eval.accuracy")
 
-MAX_CONSECUTIVE_FAILURES = 2
+# ⚠️ Raised from 2 once batch_mode() stopped retrying: a failure now costs one
+# request instead of three, and the real "stop now" signal is the daily cap,
+# which is detected outright. Two was tuned when a failure was expensive, and it
+# ended runs on a pair of 503s with most of the day still unspent.
+MAX_CONSECUTIVE_FAILURES = 4
 
 
 def pending() -> list[int]:
@@ -47,6 +52,7 @@ def pending() -> list[int]:
 def run(limit: int | None = None) -> dict:
     """Attribute pending swings so the accuracy metric has something to score."""
     from swing.agent.graph import attribute_swing
+    from swing.agent.llm import batch_mode, daily_cap_reached
 
     targets = pending()
     if limit is not None:
@@ -56,22 +62,27 @@ def run(limit: int | None = None) -> dict:
 
     verdicts: dict[str, int] = {}
     failures = 0
-    for swing_id in targets:
-        out = attribute_swing(swing_id, run_kind="production", persist=True)
-        if out.get("verdict_reason") == "llm_error":
-            failures += 1
-            logger.warning("accuracy: model call failed for swing %s (%d in a row)",
-                           swing_id, failures)
-            if failures >= MAX_CONSECUTIVE_FAILURES:
-                logger.warning("accuracy: stopping after %d consecutive failures", failures)
-                break
-            continue
-        failures = 0
-        attr = out.get("attribution")
-        verdict = attr.verdict if attr else "error"
-        verdicts[verdict] = verdicts.get(verdict, 0) + 1
-        logger.info("accuracy: swing %s -> %s", swing_id, verdict)
-
+    # One request per case: see llm.batch_mode.
+    with batch_mode():
+        for swing_id in targets:
+            out = attribute_swing(swing_id, run_kind="production", persist=True)
+            if out.get("verdict_reason") == "llm_error":
+                if daily_cap_reached():
+                    logger.warning("accuracy: daily quota exhausted; "
+                                   "%d still pending for tomorrow", len(targets))
+                    break
+                failures += 1
+                logger.warning("accuracy: model call failed for swing %s (%d in a row)",
+                               swing_id, failures)
+                if failures >= MAX_CONSECUTIVE_FAILURES:
+                    logger.warning("accuracy: stopping after %d consecutive failures", failures)
+                    break
+                continue
+            failures = 0
+            attr = out.get("attribution")
+            verdict = attr.verdict if attr else "error"
+            verdicts[verdict] = verdicts.get(verdict, 0) + 1
+            logger.info("accuracy: swing %s -> %s", swing_id, verdict)
     return {"attributed": sum(verdicts.values()), "verdicts": verdicts,
             "remaining": len(pending())}
 

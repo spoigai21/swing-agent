@@ -19,6 +19,8 @@ outside this module names a model or a vendor.
 from __future__ import annotations
 
 import json
+from contextlib import contextmanager
+from contextvars import ContextVar
 from datetime import datetime
 from typing import Any
 from zoneinfo import ZoneInfo
@@ -65,6 +67,34 @@ def _is_transient(exc: BaseException) -> bool:
     return any(s in text for s in ("429", "RESOURCE_EXHAUSTED", "503", "UNAVAILABLE"))
 
 
+# ---------------------------------------------------------------- batch mode
+# ⚠️ Under a hard 20/day cap a retry is NOT free: every attempt Google serves —
+# or refuses with 503 "high demand" — spends one of the twenty. On 2026-09-20
+# the day's last 10 requests bought only 2 scored cases, because three of them
+# were retried twice each: 5 extra requests to rescue 1 case, a losing trade.
+#
+# When the failures are server-side they are independent of WHICH case is being
+# asked, so moving to the next case is exactly as likely to succeed as asking
+# the same one again, and it adds a case instead of repeating one. Interactive
+# use is the opposite — someone is waiting for THAT swing — so this is a mode,
+# not a new default.
+_BATCH = ContextVar("swing_llm_batch", default=False)
+
+
+@contextmanager
+def batch_mode():
+    """Spend each request on a new case instead of retrying the last one."""
+    token = _BATCH.set(True)
+    try:
+        yield
+    finally:
+        _BATCH.reset(token)
+
+
+def _should_retry(exc: BaseException) -> bool:
+    return not _BATCH.get() and _is_transient(exc)
+
+
 def _log_attempt(state) -> None:
     """Make the request:case ratio visible.
 
@@ -107,6 +137,42 @@ def is_quota_rejection(exc: BaseException) -> bool:
     return "RESOURCE_EXHAUSTED" in text or "429" in text
 
 
+def _write_quota(day: str, value: int) -> int:
+    try:
+        data = json.loads(QUOTA_PATH.read_text())
+    except (OSError, ValueError):
+        data = {}
+    data[day] = max(0, value)
+    # Keep the file small; a fortnight is plenty to debug a bad night.
+    for old in sorted(data)[:-14]:
+        data.pop(old, None)
+    QUOTA_PATH.parent.mkdir(parents=True, exist_ok=True)
+    QUOTA_PATH.write_text(json.dumps(data, indent=2, sort_keys=True))
+    return data[day]
+
+
+_daily_cap_day: str | None = None
+
+
+def daily_cap_reached() -> bool:
+    """True once the API itself has refused for the day. Clears at midnight PT."""
+    return _daily_cap_day == _today()
+
+
+def note_daily_cap() -> None:
+    """Believe Google over the ledger.
+
+    The ledger counts attempts from this process, so it drifts from Google's
+    count in both directions — a hand-edit, a call from another checkout, a
+    refusal it could not classify. A daily-cap refusal is the one moment the
+    true answer is known, so pin the day to its full quota and let every caller
+    that sizes work from remaining_today() see zero.
+    """
+    global _daily_cap_day
+    _daily_cap_day = _today()
+    _write_quota(_today(), DAILY_QUOTA)
+
+
 def record_call(n: int = 1) -> int:
     """Count one request that actually reached the model.
 
@@ -116,22 +182,11 @@ def record_call(n: int = 1) -> int:
     from remaining_today(), that would skip capacity Gate 4 actually had — the
     opposite of the undercount this ledger was built to fix.
     """
-    try:
-        data = json.loads(QUOTA_PATH.read_text())
-    except (OSError, ValueError):
-        data = {}
-    day = _today()
-    data[day] = max(0, int(data.get(day, 0)) + n)
-    # Keep the file small; a fortnight is plenty to debug a bad night.
-    for old in sorted(data)[:-14]:
-        data.pop(old, None)
-    QUOTA_PATH.parent.mkdir(parents=True, exist_ok=True)
-    QUOTA_PATH.write_text(json.dumps(data, indent=2, sort_keys=True))
-    return data[day]
+    return _write_quota(_today(), spent_today() + n)
 
 
 @retry(
-    retry=retry_if_exception(_is_transient),
+    retry=retry_if_exception(_should_retry),
     # A person is waiting at the prompt: three tries over ~30 s, not minutes.
     # On 2026-09-14 every Flash model returned intermittent 503 "high demand";
     # only 429 was retried, so one spike failed the whole question.
@@ -158,7 +213,9 @@ def invoke_with_retry(runnable, prompt: str):
         # tenacity swallows the first two, so a batch that served 7 calls logged
         # 23 — and schedule.placebo_if_due sizes the night from remaining_today(),
         # so an inflated ledger makes Gate 4 skip capacity it actually has.
-        if is_quota_rejection(exc):
+        if is_daily_cap(exc):
+            note_daily_cap()    # the day is over; stop guessing at what is left
+        elif is_quota_rejection(exc):
             record_call(-1)     # refused, never served, never charged
         raise
 

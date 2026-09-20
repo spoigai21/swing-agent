@@ -314,8 +314,119 @@ class TestAbstentionRunner:
 
         from swing.eval import abstention
 
-        assert abstention.MAX_CONSECUTIVE_FAILURES == 2
+        assert abstention.MAX_CONSECUTIVE_FAILURES >= 2
         assert "llm_error" in inspect.getsource(abstention.run)
+
+
+class TestARetryCostsACase:
+    """Under a hard 20/day cap, a retry is not free — it is a case not scored.
+
+    On 2026-09-20 the day's last 10 requests produced 2 scored cases: three of
+    them were retried twice each against 503 "high demand", spending 5 extra
+    requests to rescue 1 case. Retrying the same swing is only worth it when
+    someone is waiting for THAT swing.
+    """
+
+    def _quiet_limiter(self, monkeypatch, tmp_path):
+        from swing.agent import llm
+
+        monkeypatch.setattr(llm, "_llm_limiter", type("S", (), {"wait": lambda s: None})())
+        monkeypatch.setattr(llm, "QUOTA_PATH", tmp_path / "usage.json")
+        monkeypatch.setattr(llm, "_daily_cap_day", None, raising=False)
+
+    def test_interactive_use_still_retries(self, monkeypatch, tmp_path):
+        import pytest
+
+        from swing.agent import llm
+
+        self._quiet_limiter(monkeypatch, tmp_path)
+        calls = []
+
+        class Flaky:
+            def invoke(self, prompt):
+                calls.append(prompt)
+                raise RuntimeError("503 UNAVAILABLE: model is overloaded")
+
+        with pytest.raises(RuntimeError):
+            llm.invoke_with_retry.retry_with(wait=lambda *a, **k: 0)(Flaky(), "p")
+        assert len(calls) == 3, "a person at the prompt is worth three tries"
+
+    def test_a_batch_spends_the_request_on_the_next_case_instead(
+            self, monkeypatch, tmp_path):
+        import pytest
+
+        from swing.agent import llm
+
+        self._quiet_limiter(monkeypatch, tmp_path)
+        calls = []
+
+        class Flaky:
+            def invoke(self, prompt):
+                calls.append(prompt)
+                raise RuntimeError("503 UNAVAILABLE: model is overloaded")
+
+        with llm.batch_mode(), pytest.raises(RuntimeError):
+            llm.invoke_with_retry(Flaky(), "p")
+        assert len(calls) == 1, "the other two requests belong to other cases"
+
+    def test_the_ledger_believes_google_over_itself(self, monkeypatch, tmp_path):
+        """The ledger counts this process's attempts, so it drifts. A daily-cap
+        refusal is the one moment the true remaining count is known."""
+        import json
+
+        from swing.agent import llm
+
+        self._quiet_limiter(monkeypatch, tmp_path)
+        llm.record_call(3)
+        assert llm.remaining_today() == llm.DAILY_QUOTA - 3
+        try:
+            llm.note_daily_cap()
+            assert llm.remaining_today() == 0
+            assert llm.daily_cap_reached()
+            assert json.loads((tmp_path / "usage.json").read_text())[
+                llm._today()] == llm.DAILY_QUOTA
+        finally:
+            llm._daily_cap_day = None
+
+
+class TestTheDailyCapEndsARunButAServerBlipDoesNot:
+    """Two failures look identical from the runner and mean opposite things:
+    the cap means come back tomorrow, a 503 means try the next case."""
+
+    def _runner(self, monkeypatch, verdicts, capped):
+        from swing.agent import graph, llm
+        from swing.eval import abstention
+
+        asked = []
+
+        def fake_attribute(swing_id, **kw):
+            asked.append(swing_id)
+            v = verdicts.pop(0)
+            if v == "llm_error":
+                return {"verdict_reason": "llm_error"}
+            return {"attribution": type("A", (), {"verdict": v})()}
+
+        monkeypatch.setattr(graph, "attribute_swing", fake_attribute)
+        monkeypatch.setattr(llm, "daily_cap_reached", lambda: capped)
+        monkeypatch.setattr(abstention, "pending", lambda: [1, 2, 3, 4, 5, 6])
+        return abstention, asked
+
+    def test_the_daily_cap_stops_at_the_first_failure(self, monkeypatch):
+        abstention, asked = self._runner(
+            monkeypatch, ["llm_error"] * 6, capped=True)
+        result = abstention.run()
+        assert asked == [1], "asking again cannot work until midnight PT"
+        assert result["attributed"] == 0
+
+    def test_a_server_blip_moves_on_to_the_next_case(self, monkeypatch):
+        abstention, asked = self._runner(
+            monkeypatch,
+            ["llm_error", "unexplained", "llm_error", "unexplained",
+             "unexplained", "unexplained"],
+            capped=False)
+        result = abstention.run()
+        assert len(asked) == 6, "a blip on one swing says nothing about the next"
+        assert result["attributed"] == 4
 
 
 class TestEarningsFiguresMatchTheFiling:

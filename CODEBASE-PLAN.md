@@ -2347,3 +2347,36 @@ discarded all 24 accumulated Gate 4 cases.
 **`eval/abstention.py`** targets the 13 annotated no-catalyst swings that have no
 production attribution, which is why `abstention precision` reads `n/a`. The
 query was never broken, only starved. Quota-blocked until tomorrow.
+
+### §16.32 A retry is a case you did not score
+
+2026-09-20's last 10 requests bought 2 scored cases. The arithmetic:
+
+    swing 299   1 + 2 retries   503 "high demand"   failed
+    swing 325   1 + 1 retry     succeeded
+    swing 358   1 + 2 retries   503                 failed
+    swing 375   1               503                 failed, run stopped
+    swing 216   1               succeeded
+    swing 220   1               daily cap
+    swing 230   1               daily cap, run stopped
+
+Five extra requests rescued one case. That is a losing trade, and it is only
+losing because the cap is *hard*: with 20 requests a day, retrying swing 299 is
+choosing not to ask swing 358 at all. The failures were server-side, so they
+said nothing about which swing was asked — the next case was exactly as likely
+to succeed and would have added a case rather than repeating one.
+
+`llm.batch_mode()` turns retries off for the eval runners and leaves them on for
+interactive use, where someone is waiting for that specific swing and a retry
+spends a request they would have spent anyway.
+
+Two things also came out of this:
+
+* **Stopping after two consecutive failures was tuned for expensive failures.**
+  Now that a failure costs one request, `MAX_CONSECUTIVE_FAILURES` is 4 — the
+  guard exists for a sustained outage, not for a pair of blips, and the real
+  "come back tomorrow" signal is the daily cap.
+* **The daily cap is the one moment the true remaining quota is known.**
+  `note_daily_cap()` pins the ledger to the full quota when Google refuses, so
+  everything that sizes work from `remaining_today()` stops guessing. The ledger
+  counts this process's attempts and had drifted to 24 on a 20-request day.
