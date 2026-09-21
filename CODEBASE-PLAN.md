@@ -2422,3 +2422,57 @@ just a ledger that has drifted. The two backstops are `note_daily_cap()`, which
 pins the day the moment Google refuses, and midnight PT.
 
 Do not hand-edit `data/gemini_usage.json`. This is the second time.
+
+### §16.35 0.1.0 worked for exactly one person
+
+`swing-agent 0.1.0` published cleanly, installed cleanly, and printed `--help`.
+Every other command died on a clean machine with "cannot locate the project
+root". Three separate files the package reads at runtime were outside it:
+
+    config/*.yaml, prompts    repo root, never inside src/, so never in the wheel
+    store/schema.sql          inside src/, but setuptools ships only .py files
+    eval/placebo.py (hashed)  found via ROOT/"src", which a wheel does not have
+
+**It passed testing because the test did not test the package.** `uvx --from
+swing-agent swing --help` on the author's machine resolved `swing` to the local
+editable checkout, not the wheel it had just downloaded — `swing.__file__`
+pointed into `src/`. `--help` also touches no config, so it would have passed
+anyway. The only honest test is a real wheel in an environment with no repo, no
+`SWING_HOME` and no `.env`, running a command that reads config.
+
+Fixes:
+
+* `swing.paths` resolves `SWING_HOME` → a checkout → `~/.swing`, and the last
+  case never raises, because `swing init` must run before that directory exists.
+* `src/swing/defaults/` ships the config inside the wheel; `swing init` seeds
+  `~/.swing` from it and never overwrites a user's edits. A test asserts the
+  shipped copy is byte-identical to `config/`, so the two cannot drift.
+* `package-data` lists every non-.py runtime file, with a comment saying why.
+* `eval_hash` resolves `placebo.py` from the package. The value is unchanged
+  in a checkout, so Gate 4's 38 cases survive.
+
+Two more surfaced only in the clean-install run:
+
+* **A missing SEC contact reported itself as a schema bug.** `apply_schema`
+  loads `Settings`, which rejects a user agent with no email, so the failure
+  appeared as "1 validation error for Settings" under a message saying "this
+  is a bug". `swing init` now checks the contact before the database.
+* **The default model was not the measured one.** Settings defaulted to
+  `gemini-3.5-flash`; every number in the README came from `gemini-3.6-flash`.
+  Metrics pool per `model_id`, so a default install printed `confabulation n/a
+  n=0` — the tool's headline claim, invisible on a fresh install. A test now
+  pins the default to the measured model.
+
+### §16.36 Day one is no longer empty
+
+`swing backfill-events` pulls from the two sources that have a real past:
+SEC EDGAR (every filing, no lookback cap — NVDA's feed carries 62 8-Ks back to
+2020, where the old first-run limit stopped at 40) and GDELT (wire coverage back
+to 2015). Both are also the two that are unambiguously redistributable.
+
+GDELT walks back a month per query, ~5 GB scanned each (measured: 1 month, 2
+tickers, 5.4 GB), and checks `gdelt.affordable()` before every month so a budget
+stop costs at most one month's scan. A failed month is logged and skipped rather
+than ending the walk. It normalizes at the end, because rows left in
+`articles_raw` are invisible to retrieval and a backfill that "worked" would
+otherwise leave every swing unexplained.

@@ -1,141 +1,216 @@
-# Stock Swing Attribution Agent
+# swing
 
-Detects unusual price moves, retrieves news across sources, and produces an
-evidence-backed explanation of *why* a stock moved — or states that no catalyst
-can be identified.
+**Why did that stock move?** `swing` detects unusual price moves, finds the news
+published *before* they started, and explains them — or tells you it can't.
 
-Specs: `agent-plan.md` (what and why) · `data-sources.md` (APIs) ·
-`CODEBASE-PLAN.md` (module layout, schema, build order).
+```console
+$ swing why NVDA --date 2025-10-06
 
-## Using it
+NVDA fell 1.1% on Mon Oct 6.
+  Split: market +0.6% · chip stocks +1.3% · NVDA on its own -3.1%
 
-```bash
-swing                                   # opens the prompt
-> why is NVDA down?
-> what happened to Tesla yesterday?
-> why did MU jump on Aug 27?
+Why: AMD announced a major strategic partnership with OpenAI to deploy
+6 gigawatts of GPUs, presenting a substantial competitive threat to
+Nvidia's AI chip market dominance.
+  • Mon Oct 6, 7:04am ET · SEC filing · AMD 8-K — Item 1.01,3.02,7.01,9.01
+    — AMD AND OPENAI ANNOUNCE STRATEGIC PARTNERSHIP TO DEPLOY 6 GIGAWATTS
+    https://www.sec.gov/Archives/edgar/data/2488/000119312525230895/d28189d8k.htm
+  • Mon Oct 6, 7:30am ET · CNBC · OpenAI looks to take 10% stake in AMD
+    https://www.cnbc.com/2025/10/06/openai-amd-chip-deal-ai.html
+  • Mon Oct 6, 8:15am ET · Theverge · AMD teams up with OpenAI to challenge
+    Nvidia's AI chip dominance
+    https://www.theverge.com/news/792650/amd-openai-five-year-ai-chip-agreement
+  Confidence: high
 ```
 
-One-shot forms: `swing ask "why is NVDA down?"` · `swing why NVDA --date 2026-08-27`.
+Note the split. NVDA closed down only 1.1%, which on its own looks like noise —
+but the market was up and chip stocks were up 1.3%, so the company's own move
+was **-3.1%**. That is the move worth explaining, and the explanation came from
+a **competitor's** SEC filing, timestamped 2h26m before the drop began.
 
-- Covers the 12 watchlist stocks: NVDA MRVL MU SNDK AVGO QCOM AAPL GOOGL NFLX TTWO TSLA SBUX.
-- Each question fetches fresh prices and news first. A normal day is answered in
-  a second or two with no model call; an unusual move takes ~20s and uses one
-  Gemini request (free tier: 20/day). Asking again reuses the stored answer.
-- Evidence: SEC filings, company press releases, Reuters and Bloomberg wire stories,
-  WSJ / CNBC / MarketWatch / Dow Jones, analyst rating changes, and news about
-  related companies (competitors, big customers, suppliers), each placed before or
-  after the moment the move started.
-- When nothing published before the move explains it, it says so instead of guessing.
-- It refuses forecasts ("is NVDA a buy?").
-- Answers are only as good as the news it holds, so keep the collector running (below).
-
-Everything else (`annotate`, `placebo`, `metrics`, `daily`, ...) is evaluation
-and operations tooling.
 
 ---
 
-## Runbook
+## The one thing to know
 
-### Installing the `swing` command
+`swing` abstains. When nothing published before a move explains it, it says
+`unexplained` instead of assembling a plausible story from whatever is nearby.
 
-Installed globally (editable, so code edits take effect immediately):
-
-```bash
-uv tool install --editable ".[data,ml,llm]" --python 3.12 --force
-swing health          # per-source feed health
-swing coverage        # what data do I have
-swing dbinit          # apply schema, idempotent
-```
-
-### The collector
-
-```bash
-tail -f data/collector.log            # watch it
-swing health                          # per-source counts + broken-feed check
-kill $(cat data/collector.pid)        # stop
-nohup caffeinate -is swing collect --daemon > data/collector.nohup.log 2>&1 &
-  echo $! > data/collector.pid        # start  (see the sleep caveat below)
-```
-
-Polls: EDGAR every 10 min (12 stocks + 21 related companies) · IR/press RSS every
-10-15 min · Finnhub news every 6 h · analyst ratings hourly · normalize every
-5 min · dead-feed check every 30 min.
-
-Scheduled inside the collector (`interface/schedule.py`), so no cron is needed:
-- **Weekdays 16:45 ET** — refresh, detect the day's swings, explain up to 3 new big
-  moves, alert on |z| ≥ 3.
-- **Nightly 00:30 PT** — 17 placebo cases toward Gate 4's 200 (about 12 nights);
-  the job stops by itself at 200.
-
-That is up to 20 of the 20 free Gemini requests a day: on a day the post-close run
-explains moves, unusual-move questions wait until the quota resets at midnight
-Pacific. Normal days and repeated questions cost nothing. Each job records its last run in
-`data/schedule_*.last`; delete a file to make that job run again today.
-
-### ⚠️ Two persistence caveats — read both
-
-**1. This Mac sleeps after 1 minute idle** (`pmset` reports `sleep 1`,
-`powernap 0` on battery). `time.monotonic()` freezes across macOS sleep, so the
-collector stops polling entirely — observed directly: one poll, then 61 minutes
-with zero CPU and no polls. That is silent, permanent news loss.
-
-The `caffeinate -is` wrapper above is the mitigation and is verified working,
-but it keeps the Mac awake and does not survive a lid close. **The real fix is
-an always-on host** — a $5 VPS or a Raspberry Pi running Postgres and the
-collector. Every other part of this system is a batch job that can run anywhere;
-only the collector must never stop.
-
-**2. The collector runs under `nohup`. It survives closing the terminal,
-but not a reboot or logout.** A macOS LaunchAgent was tried and does not work
-from this location: `~/Desktop` is TCC-protected, and a launchd background agent
-does not inherit Full Disk Access, so the Python interpreter blocks forever in
-`_PyConfig_InitPathConfig → open()` before any project code runs.
-
-Two durable fixes, either one is a few minutes:
-
-1. **Move the repo out of `~/Desktop`** (e.g. `~/projects/swing-agent`), recreate
-   the venv there, then install `scripts/com.swingagent.collector.plist`:
-   ```bash
-   sed "s|__REPO__|$PWD|g" scripts/com.swingagent.collector.plist \
-     > ~/Library/LaunchAgents/com.swingagent.collector.plist
-   launchctl load ~/Library/LaunchAgents/com.swingagent.collector.plist
-   ```
-2. **Grant Full Disk Access** to the interpreter in
-   System Settings → Privacy & Security → Full Disk Access, then load the plist.
-
-Until then: after any reboot, restart the collector with the command above.
-**Check `--report` shows growth every few days.** A silently dead feed for three
-weeks is three weeks of unrecoverable data.
-
-### Database
-
-```bash
-docker compose up -d                  # Postgres 16 + pgvector on :5433
-docker compose ps
-swing dbinit && .venv/bin/alembic upgrade head   # schema + migrations, idempotent
-docker exec -e PGPASSWORD=swing swing-db psql -U swing -d swing_agent
-```
+In 38 tests where it was handed deliberately unrelated evidence, it invented a
+cause **0 times**. That is the property the rest of the design exists to
+protect, and it is measured on every release rather than asserted.
 
 ---
 
-## Layout
+## How it works
 
 ```
-src/swing/
-  cli.py, commands.py   the `swing` command and its subcommands
-  interface/explain.py  one question -> prices, news, split, reason   (what `swing` runs)
-  ingest/               collector, EDGAR, RSS, Finnhub, prices, normalize
-  analysis/             market/sector split, swing detection, onset, clustering, ranking
-  agent/                LangGraph attribution: Gemini call + code-level citation/abstention guards
-  eval/                 annotation, placebo test, metrics
-  store/                schema.sql, models, migrations
-config/                 watchlist.yaml, sources.yaml, thresholds.yaml, prompts/
+  ┌─ collect ──────────────────────────────────────────────────────────┐
+  │  SEC EDGAR · GDELT (Reuters/Bloomberg/WSJ) · company IR feeds ·    │
+  │  CNBC · MarketWatch · analyst ratings · press wires                │
+  └────────────────────────────┬───────────────────────────────────────┘
+                               ▼
+  1. DECOMPOSE   Split the day's return into market + sector + the part
+                 that is this company alone. A stock up 3% on a day the
+                 market is up 3% has not done anything.
+
+  2. DETECT      Flag only moves where the idiosyncratic residual is
+                 statistically unusual for that ticker.
+
+  3. TIME        Find the minute the move actually started, from intraday
+                 bars. This is what makes "before" mean something.
+
+  4. RETRIEVE    Cluster news around that moment and rank it. Everything
+                 is labelled pre_move or post_move against the onset.
+
+  5. EXPLAIN     Ask the model to pick a catalyst from the pre-move
+                 evidence, citing specific articles — or to abstain.
+
+  6. GUARD       Drop any citation that does not resolve to a real
+                 retrieved article, then re-check the answer still stands.
+                 A verdict resting on a dropped citation becomes
+                 `unexplained`.
 ```
 
-Design and findings: `CODEBASE-PLAN.md`. Package layout is `src/swing/` so a
-globally installed `swing` does not put `common` or `agent` on the system as
-top-level import names.
+Steps 1-4 use no model at all. The model only writes the final judgement, and
+it can only cite what step 4 actually retrieved.
+
+---
+
+## Install
+
+Needs **Python 3.12**.
+
+```bash
+pip install swing-agent        # or: uv tool install swing-agent
+swing init                     # asks for your keys, sets up the database
+```
+
+`swing init` walks you through the two things nothing works without — an SEC
+contact string and a Postgres URL — and writes them to `~/.swing/.env`.
+
+You need **Postgres with pgvector**. If you don't have one:
+
+```bash
+docker run -d --name swing-db -p 5433:5432 \
+  -e POSTGRES_USER=swing -e POSTGRES_PASSWORD=swing -e POSTGRES_DB=swing_agent \
+  pgvector/pgvector:pg16
+```
+
+Then load history and start collecting:
+
+```bash
+swing backfill                 # price bars
+swing backfill-events          # SEC filings + world news, years back
+swing collect --daemon &       # keep running — see below
+swing why NVDA
+```
+
+### Keys
+
+| Key | Needed for | Free? |
+|---|---|---|
+| `SEC_USER_AGENT` | SEC filings. Any string with your email. | yes |
+| `DATABASE_URL` | everything | yes |
+| `GEMINI_API_KEY` | writing explanations — [aistudio.google.com/apikey](https://aistudio.google.com/apikey) | yes, 20 requests/day |
+| `FINNHUB_API_KEY` | company news, analyst ratings | optional |
+| `GOOGLE_CLOUD_PROJECT` | GDELT wire coverage via BigQuery | optional, 1 TB/month free |
+
+### ⚠️ Keep the collector running
+
+News cannot be backfilled. An RSS feed serves the last 20-50 items and free API
+tiers cap how far back you can ask, so **every hour the collector is not running
+is coverage that is gone permanently.** `swing backfill-events` recovers SEC
+filings and GDELT because those two have real archives; nothing else does.
+
+If your machine sleeps, the collector stops. Run it somewhere that stays awake.
+
+---
+
+## Commands
+
+**Asking things**
+
+```bash
+swing                          # interactive prompt
+swing why NVDA                 # latest session
+swing why TSLA --date 2026-09-08
+swing ask "what is unexplained recently"
+swing unexplained              # moves it could not account for
+swing stats NVDA --days 90     # beta, R², residual vol, swing frequency
+swing compare NVDA AVGO MRVL   # idiosyncratic share side by side
+```
+
+**Running it**
+
+```bash
+swing init                     # first-time setup
+swing collect --daemon         # the news collector
+swing health                   # per-source freshness, broken feeds
+swing monitor                  # operational dashboard
+swing daily                    # post-close batch + alerts
+swing metrics                  # the evaluation numbers below
+```
+
+Everything else (`annotate`, `placebo`, `retrieve`, `factors`, …) is pipeline
+internals and evaluation tooling.
+
+---
+
+## What it is honest about
+
+`swing metrics` prints these against live data. They are measurements, not
+targets:
+
+| Metric | Meaning |
+|---|---|
+| **confabulation** | Given unrelated evidence, how often does it invent a cause? Must be near zero. |
+| **catalyst coverage** | Of moves with a knowable cause, how often is the news actually in the corpus? Bounded by your sources, not the model. |
+| **attribution accuracy** | When it does explain, is the explanation right? |
+| **abstention precision** | When it says `unexplained`, was there really nothing? |
+| **citation validity** | Does every cited article exist? Must be exactly 1.00. |
+
+Coverage is the honest weak spot. It runs around **0.70** on a well-fed
+install — roughly three in ten moves that *had* a findable cause still come back
+`unexplained`, because the story was never collected. More sources and a longer
+running collector move that number; nothing else does.
+
+---
+
+## Configuration
+
+`swing init` writes to `~/.swing/`:
+
+```
+~/.swing/
+  .env                 keys (0600)
+  config/
+    watchlist.yaml     which tickers, their CIKs and name aliases
+    sources.yaml       feeds, their tiers and poll intervals
+    thresholds.yaml    what counts as an unusual move
+    prompts/           the attribution prompts, versioned
+  data/                logs and local state
+```
+
+Edit them freely — `swing init` never overwrites your changes. Set `SWING_HOME`
+to keep them somewhere else.
+
+---
+
+## Development
+
+```bash
+git clone https://github.com/spoigai21/swing-agent && cd swing-agent
+uv sync --extra data --extra llm --extra dev
+docker compose up -d
+uv run pytest -q
+```
+
+A checkout uses the repo's own `config/` directory, so it never touches
+`~/.swing`. Design notes live in `agent-plan.md`, `data-sources.md` and
+`CODEBASE-PLAN.md`.
+
+---
 
 ## License
 
@@ -147,17 +222,7 @@ MIT — see [LICENSE](LICENSE).
 news said before a price move. It does not predict prices, recommend trades, or
 know anything about your situation.
 
-Two limits are worth stating plainly, because they are measured rather than
-guessed:
-
-* It finds a catalyst for roughly **70%** of the moves it is asked about. The
-  rest come back `unexplained`, and the run `swing metrics` prints is the real
-  number, not a target.
-* `unexplained` means *no catalyst was found in the sources collected*, which is
-  not the same as *no catalyst existed*. Coverage is bounded by which feeds have
-  been running and for how long.
-
-The agent is built to abstain rather than guess — in 38 tests where it was given
-deliberately unrelated evidence, it invented a cause **0** times — but an
-explanation it does give is still a starting point for your own reading, not a
-conclusion. Verify anything you act on against the linked source.
+`unexplained` means *no catalyst was found in the sources collected*, which is
+not the same as *no catalyst existed*. An explanation it does give is a starting
+point for your own reading, not a conclusion — verify anything you act on
+against the linked source.

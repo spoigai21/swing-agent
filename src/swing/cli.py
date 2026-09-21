@@ -71,6 +71,14 @@ def build_parser() -> argparse.ArgumentParser:
     nb.add_argument("--months", type=int, default=12)
     nb.add_argument("--tickers", nargs="*")
 
+    be = sub.add_parser("backfill-events",
+                        help="day-one history: SEC filings + GDELT world news")
+    be.add_argument("--months", type=int, default=12,
+                    help="how far back to pull GDELT (default 12)")
+    be.add_argument("--tickers", nargs="*")
+    be.add_argument("--no-gdelt", action="store_true",
+                    help="SEC filings only; skip BigQuery entirely")
+
     nz = sub.add_parser("normalize", help="articles_raw -> articles (tier, tag, embed)")
     nz.add_argument("--limit", type=int, default=None, help="one batch of this size")
 
@@ -97,7 +105,7 @@ def build_parser() -> argparse.ArgumentParser:
     an.add_argument("--limit", type=int, default=10)
     an.add_argument("--progress", action="store_true")
 
-    sub.add_parser("metrics", help="the five evaluation metrics")
+    sub.add_parser("metrics", help="the seven evaluation metrics")
 
     al = sub.add_parser("alert", help="notify on large moves (|z| >= 3)")
     al.add_argument("--days", type=int, default=3)
@@ -118,13 +126,39 @@ def build_parser() -> argparse.ArgumentParser:
     pl.add_argument("--n", type=int, default=30)
     pl.add_argument("--seed", type=int, default=0)
     sub.add_parser("dbinit", help="apply the database schema (idempotent)")
+
+    it = sub.add_parser("init", help="first-time setup: config, keys, database")
+    it.add_argument("--home", help="where to put config and data (default ~/.swing)")
+    it.add_argument("--force", action="store_true",
+                    help="overwrite existing config files with the shipped defaults")
+    it.add_argument("--non-interactive", action="store_true",
+                    help="take defaults and existing .env values, ask nothing")
     return p
+
+
+#: `init` is what you run when nothing is set up, so it must not be gated on
+#: being set up. Everything else is, at this one choke point rather than in
+#: twenty command bodies.
+NEEDS_NO_CONFIG = {"init"}
 
 
 def dispatch(args: argparse.Namespace) -> int:
     from swing import commands  # imported here to keep startup fast
 
+    if args.cmd not in NEEDS_NO_CONFIG:
+        from swing.paths import require_initialised
+
+        require_initialised()
+
     match args.cmd:
+        case "init":
+            from pathlib import Path
+
+            from swing.interface import setup
+
+            return setup.run(Path(args.home) if args.home else None,
+                             force=args.force,
+                             interactive=not args.non_interactive)
         case "coverage":
             return commands.coverage()
         case "collect":
@@ -135,6 +169,8 @@ def dispatch(args: argparse.Namespace) -> int:
             return commands.dbinit()
         case "backfill":
             return commands.backfill(args.years, args.symbols)
+        case "backfill-events":
+            return commands.backfill_events(args.months, args.tickers, args.no_gdelt)
         case "backfill-news":
             return commands.backfill_news(args.months, args.tickers)
         case "normalize":

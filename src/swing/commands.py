@@ -126,6 +126,20 @@ def backfill_news(months: int = 12, tickers: list[str] | None = None) -> int:
     return 0
 
 
+def backfill_events(months: int = 12, tickers: list[str] | None = None,
+                    skip_gdelt: bool = False) -> int:
+    """Day-one history from SEC EDGAR and GDELT — the two sources with a past."""
+    from swing.common import logging as log
+    from swing.ingest.backfill_events import run
+
+    log.setup()
+    res = run(months, tickers or None, skip_gdelt=skip_gdelt)
+    print("\n" + res.summary())
+    print("\nNext: `swing backfill` for price history, then "
+          "`swing collect --daemon` to keep up with the news from here.")
+    return 0
+
+
 def normalize(limit: int | None = None) -> int:
     from swing.common import logging as log
     from swing.ingest.normalize import normalize_all, normalize_batch

@@ -52,11 +52,16 @@ def eval_hash() -> str:
     runs under different designs must not be pooled, and config_hash cannot see
     it because that only hashes YAML.
     """
-    from swing.paths import ROOT
+    # ⚠️ Resolve from the PACKAGE, not ROOT/"src". An installed wheel has no
+    # src/ directory, so the old form hashed an empty file for every user who
+    # was not working in a checkout — silently pooling their eval results with
+    # everyone else's under one meaningless hash.
+    import swing
 
+    package = Path(swing.__file__).resolve().parent
     h = hashlib.sha256()
     for rel in HASHED_EVAL_CODE:
-        path = ROOT / "src" / "swing" / rel
+        path = package / rel
         h.update(rel.encode())
         h.update(path.read_bytes() if path.exists() else b"")
     return h.hexdigest()[:12]

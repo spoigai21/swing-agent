@@ -1,0 +1,298 @@
+# Source -> tier mapping and poll cadence. agent-plan.md §0.5, data-sources.md C.3.
+#
+# Tier 1: SEC filings + company IR press releases  -> primary evidence
+# Tier 2: Reuters/AP/Bloomberg wire (arrives via Finnhub/Marketaux, Phase 0)
+# Tier 3: WSJ, CNBC, MarketWatch, trade press      -> analysis and framing
+# Tier 4: aggregators, content farms               -> EXCLUDED, never ingested
+#
+# `verified` records a live probe on 2026-08-30: 200 + parseable items.
+# `enabled: false` entries are blocked by a WAF (persistent 403 challenge page)
+# or return no feed. They are kept, not deleted, so they can be revisited.
+# EDGAR 8-K covers every one of these companies at Tier 1 regardless, so a
+# blocked IR feed costs redundancy, not coverage.
+
+# ---------------------------------------------------------------------------
+# Finnhub free tier, probed 2026-08-31 with a real key:
+#   /quote                 200  (o/h/l/c/pc, NO volume)
+#   /company-news          200  (243 NVDA articles in one week -- the Tier 2 workhorse)
+#   /stock/recommendation  200  (analyst recommendation trend)
+#   /calendar/earnings     200
+#   /stock/candle          403  "You don't have access to this resource"
+#                               -- for BOTH intraday AND daily resolutions
+#   /stock/price-target    403
+#
+# Two consequences:
+#  1. Finnhub supplies NO OHLCV on the free tier. agent-plan.md 0.3's "yfinance
+#     for backfill, Finnhub for ongoing updates" does not work -- yfinance is
+#     the source for ALL bars, daily and intraday, with Tiingo as fallback.
+#  2. data-sources.md C.4 wants analyst actions as synthetic Tier 2 articles.
+#     Recommendation trend is available; price targets are not. Partial coverage.
+#
+# Finnhub company-news mixes tiers -- the sample included SeekingAlpha, which is
+# Tier 4 by our own rules. normalize.py must assign tiers per PUBLISHER, not
+# per feed, and drop tier 4. Otherwise aggregator content silently enters the
+# evidence pool.
+# ---------------------------------------------------------------------------
+
+# Finnhub company-news `datetime` is Eastern WALL-CLOCK time encoded as if it
+# were a UTC epoch. Verified 2026-09-13 against CNBC's own RSS and EDGAR 8-K
+# acceptance times: read naively it is 4h early in summer and 5h in winter,
+# which files post-move commentary as pre-move evidence. Ingest re-reads it in
+# this zone (migration 0006 corrected the archive). Changing this value changes
+# config_hash, so attributions built on misread timestamps never pool with
+# corrected ones.
+finnhub:
+  timestamp_tz: America/New_York
+
+edgar:
+  tier: 1
+  poll_seconds: 600            # every 10 min, 12 CIKs
+  submissions_url: "https://data.sec.gov/submissions/CIK{cik}.json"
+  forms: ["8-K", "8-K/A", "6-K", "10-Q", "10-K"]
+
+feeds:
+  # ---------- Tier 1: company IR / newsroom ----------
+  - {id: nvda_ir,  source: nvidia-ir,    tier: 1, tickers: [NVDA],  poll_seconds: 600,
+     url: "https://nvidianews.nvidia.com/releases.xml", verified: true}
+  - {id: aapl_ir,  source: apple-ir,     tier: 1, tickers: [AAPL],  poll_seconds: 600,
+     url: "https://www.apple.com/newsroom/rss-feed.rss", verified: true}
+  - {id: avgo_ir,  source: broadcom-ir,  tier: 1, tickers: [AVGO],  poll_seconds: 600,
+     url: "https://investors.broadcom.com/rss/news-releases.xml", verified: true}
+  - {id: sndk_ir,  source: sandisk-ir,   tier: 1, tickers: [SNDK],  poll_seconds: 600,
+     url: "https://investor.sandisk.com/rss/news-releases.xml", verified: true}
+  - {id: ttwo_ir,  source: taketwo-ir,   tier: 1, tickers: [TTWO],  poll_seconds: 600,
+     url: "https://ir.take2games.com/rss/news-releases.xml", verified: true}
+  - {id: nflx_ir,  source: netflix-ir,   tier: 1, tickers: [NFLX],  poll_seconds: 600,
+     url: "https://ir.netflix.net/rss/PressRelease.aspx?IssueID=0", verified: true}
+
+  # ---------- Tier 1, blocked: revisit ----------
+  - {id: mu_ir,    source: micron-ir,    tier: 1, tickers: [MU],    poll_seconds: 600,
+     url: "https://investors.micron.com/rss/news-releases.xml",
+     enabled: false, block: "403 WAF challenge"}
+  - {id: qcom_ir,  source: qualcomm-ir,  tier: 1, tickers: [QCOM],  poll_seconds: 600,
+     url: "https://investor.qualcomm.com/rss/news-releases.xml",
+     enabled: false, block: "403 WAF challenge"}
+  - {id: sbux_ir,  source: starbucks-ir, tier: 1, tickers: [SBUX],  poll_seconds: 600,
+     url: "https://investor.starbucks.com/rss/news-releases.xml",
+     enabled: false, block: "403 WAF challenge"}
+  - {id: googl_ir, source: alphabet-ir,  tier: 1, tickers: [GOOGL], poll_seconds: 600,
+     url: "https://abc.xyz/investor/news/rss/",
+     enabled: false, block: "403 WAF challenge"}
+  - {id: mrvl_ir,  source: marvell-ir,   tier: 1, tickers: [MRVL],  poll_seconds: 600,
+     url: "https://investor.marvell.com/rss/news-releases.xml",
+     enabled: false, block: "404 - SPA, no feed at this path"}
+  - {id: tsla_ir,  source: tesla-ir,     tier: 1, tickers: [TSLA],  poll_seconds: 600,
+     url: "https://ir.tesla.com/rss/news-releases.xml",
+     enabled: false, block: "404 - SPA, no feed at this path"}
+
+  # ---------- Tier 2: newswire press-release distributors ----------
+  # These carry COMPANY-ISSUED press releases, which agent-plan.md 0.5 defines
+  # as Tier 1 ("company press releases"), not Tier 2 journalism.
+  #
+  # Their real value here: they route around the six IR feeds blocked by a WAF
+  # (MU, QCOM, SBUX, GOOGL, MRVL, TSLA). A press release those companies issue
+  # through a wire still reaches us.
+  #
+  # These are firehoses across all issuers, so most items are irrelevant and get
+  # dropped by ticker tagging -- same as the WSJ feeds, where 80 of 446 matched.
+  # Verified 2026-09-01: BW nanotech carried NVIDIA and Tesla; PRN window holds
+  # 20 items over ~2.4h, so 15-minute polling loses nothing.
+  - {id: bw_tech, source: businesswire, tier: 2, tickers: [], poll_seconds: 900,
+     url: "https://feed.businesswire.com/rss/home/?rss=G1QFDERJXkJeGVtRWQ==", verified: true}
+  - {id: prn_all, source: prnewswire, tier: 2, tickers: [], poll_seconds: 900,
+     url: "https://www.prnewswire.com/rss/news-releases-list.rss", verified: true}
+  - {id: prn_tech, source: prnewswire, tier: 2, tickers: [], poll_seconds: 900,
+     url: "https://www.prnewswire.com/rss/technology-latest-news/technology-latest-news-list.rss", verified: true}
+  - {id: prn_fin, source: prnewswire, tier: 2, tickers: [], poll_seconds: 900,
+     url: "https://www.prnewswire.com/rss/financial-services-latest-news/financial-services-latest-news-list.rss", verified: true}
+
+  # GlobeNewswire: every RSS path connection-resets for non-browser clients
+  # (root returns 200, feeds return nothing). Not usable.
+  - {id: gnw_public, source: globenewswire, tier: 2, tickers: [], poll_seconds: 900,
+     url: "https://www.globenewswire.com/RssFeed/orgclass/1/feedTitle/GlobeNewswire-News-about-Public-Companies",
+     enabled: false, block: "connection reset for non-browser clients"}
+
+  # ---------- Tier 3: company blog (company-controlled but not IR) ----------
+  - {id: googl_blog, source: google-blog, tier: 3, tickers: [GOOGL], poll_seconds: 900,
+     url: "https://blog.google/rss/", verified: true}
+
+  # ---------- Tier 3: market press ----------
+  - {id: wsj_markets,  source: wsj,         tier: 3, tickers: [], poll_seconds: 900,
+     url: "https://feeds.content.dowjones.io/public/rss/RSSMarketsMain", verified: true}
+  - {id: wsj_tech,     source: wsj,         tier: 3, tickers: [], poll_seconds: 900,
+     url: "https://feeds.content.dowjones.io/public/rss/RSSWSJD", verified: true}
+  - {id: wsj_business, source: wsj,         tier: 3, tickers: [], poll_seconds: 900,
+     url: "https://feeds.content.dowjones.io/public/rss/WSJcomUSBusiness", verified: true}
+  - {id: mw_realtime,  source: marketwatch, tier: 3, tickers: [], poll_seconds: 900,
+     url: "https://feeds.content.dowjones.io/public/rss/mw_realtimeheadlines", verified: true}
+  - {id: mw_pulse,     source: marketwatch, tier: 3, tickers: [], poll_seconds: 900,
+     url: "https://feeds.content.dowjones.io/public/rss/mw_marketpulse", verified: true}
+  - {id: mw_top,       source: marketwatch, tier: 3, tickers: [], poll_seconds: 900,
+     url: "https://feeds.content.dowjones.io/public/rss/mw_topstories", verified: true}
+  - {id: cnbc_markets, source: cnbc,        tier: 3, tickers: [], poll_seconds: 900,
+     url: "https://search.cnbc.com/rs/search/combinedcms/view.xml?partnerId=wrss01&id=20910258", verified: true}
+  - {id: cnbc_tech,    source: cnbc,        tier: 3, tickers: [], poll_seconds: 900,
+     url: "https://search.cnbc.com/rs/search/combinedcms/view.xml?partnerId=wrss01&id=19854910", verified: true}
+  - {id: cnbc_earnings, source: cnbc,       tier: 3, tickers: [], poll_seconds: 900,
+     url: "https://search.cnbc.com/rs/search/combinedcms/view.xml?partnerId=wrss01&id=15839135", verified: true}
+
+# ---------------------------------------------------------------------------
+# Publisher -> tier. Tiering must be per PUBLISHER, not per feed: Finnhub's
+# company-news endpoint returns many publishers through one pipe, mixing Tier 2
+# wire copy with Tier 4 aggregator content. Assigning the feed's tier to every
+# article it carries would silently admit SEO/aggregator posts as evidence.
+#
+# Anything not listed here defaults to tier 4 and is DROPPED at normalize time.
+# Add publishers deliberately; the default is exclusion, not inclusion.
+# ---------------------------------------------------------------------------
+publisher_tiers:
+  # Tier 1 — primary disclosure
+  sec-edgar: 1
+  nvidia-ir: 1
+  apple-ir: 1
+  broadcom-ir: 1
+  sandisk-ir: 1
+  taketwo-ir: 1
+  netflix-ir: 1
+
+  finnhub-recommendation: 2
+  # Individual broker actions (upgrade/downgrade/initiation/price target) from
+  # Yahoo Finance's structured ratings data, one synthetic article each.
+  # Timestamped to the second in UTC; see ingest/analyst.py.
+  analyst-ratings: 2
+
+  # Tier 2 — wire services and press-release distributors
+  reuters: 2
+  "thomson reuters": 2
+  ap: 2
+  "associated press": 2
+  bloomberg: 2
+  "dow jones": 2
+  "dow jones newswires": 2
+  "business wire": 2
+  # Newswire distributors are Tier 2, NOT Tier 1, and the distinction matters.
+  # agent-plan.md 0.5 reserves Tier 1 for "company press releases" — the
+  # company's OWN disclosure. A PR Newswire item about NVIDIA is frequently
+  # issued by a PARTNER (ASUS, Acer, Equinix announcing RTX products), which is
+  # a third party mentioning the company, not the company disclosing. We cannot
+  # reliably tell issuer from mention, so we take the safer tier.
+  # This also gives the otherwise-empty Tier 2 layer (CODEBASE-PLAN 12) some
+  # legitimate content.
+  businesswire: 2
+  globenewswire: 2
+  "pr newswire": 2
+  prnewswire: 2
+  accesswire: 2
+  # Finnhub spells it "DowJones". Lookup is now spelling-insensitive, but list
+  # the variant so the intent is visible: this is the only genuine tier-2 wire
+  # copy the free stack yields (CODEBASE-PLAN 12).
+  dowjones: 2
+
+  # Tier 3 — analysis and framing
+  wsj: 3
+  "the wall street journal": 3
+  marketwatch: 3
+  cnbc: 3
+  "financial times": 3
+  ft: 3
+  barrons: 3
+  "barron's": 3
+  forbes: 3
+  fortune: 3
+  axios: 3
+  "the information": 3
+  theinformation: 3
+  semianalysis: 3
+  tomshardware: 3
+  "tom's hardware": 3
+  anandtech: 3
+  theregister: 3
+  "the register": 3
+  techcrunch: 3
+  "ars technica": 3
+  arstechnica: 3
+  engadget: 3
+  theverge: 3
+  "the verge": 3
+  google-blog: 3
+
+  # Tier 4 — explicitly excluded. Listed so the intent is visible rather than
+  # relying on the default; these are the ones Finnhub actually returns.
+  seekingalpha: 4
+  "seeking alpha": 4
+  zacks: 4
+  "zacks investment research": 4
+  benzinga: 4
+  investorplace: 4
+  "motley fool": 4
+  fool: 4
+  "simply wall st": 4
+  simplywallst: 4
+  gurufocus: 4
+  investing.com: 4
+  tipranks: 4
+  insidermonkey: 4
+  "24/7 wall st": 4
+  thestreet: 4
+  # Explicit rather than relying on the tier-4 default, so the survey of what
+  # Finnhub actually returns is legible in config.
+  yahoo: 4
+  finnhub: 4
+  chartmill: 4
+  stocktwits: 4
+  "" : 4
+
+# ---------------------------------------------------------------------------
+# Marketaux: key verified 2026-09-01, DELIBERATELY NOT POLLED.
+#
+# Free tier returns 3 articles/request, ~100 requests/day. Sampled 15 articles:
+#   gurufocus 6, seekingalpha 4, thestockmarketwatch 2, investingcaffeine 1,
+#   insidermonkey 1  -> all tier 4, dropped
+#   cnbc 1                                              -> tier 3, kept
+# 1 of 15 survives tiering, and that one duplicates our CNBC RSS.
+#
+# Targeted domain queries confirm ZERO tier-2 wire copy: reuters.com found=0,
+# apnews.com 0, bloomberg.com 0, wsj.com 0. Only cnbc.com (4,228).
+#
+# Its documented purpose was a dedup stress test for syndicated wire copy
+# (agent-plan.md rule 4). There is no wire syndication in the free stack to
+# collapse, so that purpose is moot.
+#
+# Kept for ON-DEMAND use: querying a narrow window when investigating one
+# specific swing is a reasonable use of 100 requests/day. Polling it is not.
+# ---------------------------------------------------------------------------
+marketaux:
+  enabled: false
+  reason: "1/15 articles survive tiering; zero tier-2 sources; duplicates CNBC RSS"
+  on_demand_only: true
+
+# ---------------------------------------------------------------------------
+# GDELT (BigQuery public dataset gdelt-bq.gdeltv2). Free, timestamped to 15
+# minutes in UTC, and it indexes the outlets this stack otherwise cannot reach:
+# Reuters, Bloomberg, WSJ and the FT. It carries the headline, the publisher
+# domain and the URL — never the body — which is exactly what timing evidence
+# needs (data-sources.md C.1).
+#
+# Only these domains are ingested; anything else GDELT indexes is ignored
+# rather than tiered by guesswork. The tier is the publisher's, as everywhere
+# else (publisher_tiers above).
+# ---------------------------------------------------------------------------
+gdelt:
+  # BigQuery bills bytes SCANNED against a 1 TB/month free tier. One pass
+  # scans ~0.4 GB; ingest/gdelt.py refuses to query past this ceiling.
+  monthly_budget_gb: 700
+  dataset: "gdelt-bq.gdeltv2.gkg_partitioned"
+  domains:
+    reuters.com: reuters
+    bloomberg.com: bloomberg
+    wsj.com: wsj
+    ft.com: ft
+    cnbc.com: cnbc
+    marketwatch.com: marketwatch
+    barrons.com: barrons
+    apnews.com: ap
+    theinformation.com: "the information"
+    axios.com: axios
+    techcrunch.com: techcrunch
+    theverge.com: theverge
+    arstechnica.com: arstechnica

@@ -31,7 +31,12 @@ class Settings(BaseSettings):
     # the project queries are billed to (free tier: 1 TB scanned per month).
     google_application_credentials: str = ""
     google_cloud_project: str = ""
-    attribution_model: str = "gemini-3.5-flash"
+    # ⚠️ The default must be the model the published metrics were MEASURED on.
+    # It was 3.5 while every number in the README — 0 confabulations in 38,
+    # coverage 0.709 — came from 3.6, so a fresh install ran a model the claims
+    # were not about. Metrics are pooled per model_id, so the installed package
+    # reported "confabulation n/a n=0" and looked untested.
+    attribution_model: str = "gemini-3.6-flash"
 
     poll_jitter_pct: float = Field(default=0.1, ge=0.0, le=0.5)
 

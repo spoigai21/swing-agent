@@ -1,6 +1,6 @@
 [project]
 name = "swing-agent"
-version = "0.1.0"
+version = "0.2.0"
 description = "Stock swing attribution — detects unusual moves and explains them, or abstains"
 readme = "README.md"
 license = "MIT"
@@ -59,6 +59,23 @@ build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+# ⚠️ config/ lives at the REPO root, outside the package, so it is absent from
+# the wheel — which is why 0.1.0 was unusable by anyone but the author. These
+# are the copies that ship, and `swing init` seeds ~/.swing from them.
+# ⚠️ EVERY non-.py file the package reads at runtime has to be listed. `swing
+# init` on a clean 0.1.0 install got past the database check and then died on
+# a missing schema.sql, because only the code shipped. Test a real wheel in a
+# clean environment, not the editable checkout — `uvx` silently prefers the
+# checkout and hides exactly this.
+[tool.setuptools.package-data]
+swing = [
+    "defaults/*.yaml",
+    "defaults/prompts/*.md",
+    "store/schema.sql",
+    "store/migrations/script.py.mako",
+    "eval/answer_key/*.json",
+]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

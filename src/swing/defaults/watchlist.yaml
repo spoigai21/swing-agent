@@ -1,0 +1,128 @@
+# Watchlist. 12 stocks + 4 sector entities + SPY = 17 symbols to ingest.
+# CIKs fetched from https://www.sec.gov/files/company_tickers.json on 2026-08-30
+# and zero-padded to 10 digits (data-sources.md D.2 rule 3 / D.3).
+# Verified: SNDK resolves to CIK 0002023554 "Sandisk Corp" — the post-spin entity,
+# NOT the pre-2016 SanDisk acquired by Western Digital.
+
+defaults:
+  market_etf: SPY
+  min_history_days: 400        # below this, emit insufficient_history, never a bad residual
+
+# aliases: names used to tag an article to a company when the feed does not say.
+# Curated, NOT derived from the company name: deriving it produced a pattern that
+# matched the bare word 'Interactive' for TTWO. Only distinctive names belong here.
+#
+# revenue_tag: the us-gaap XBRL tag each company ACTUALLY files today,
+# discovered via scripts/discover_xbrl_tags.py on 2026-08-31 and ranked by
+# recency. The split is 6/6 between two tags -- no single tag works across the
+# watchlist, and ranking by datapoint count (as the spec suggests) picks
+# CostOfRevenue for GOOGL and the retired pre-ASC606 SalesRevenueNet for
+# MU/AAPL/TTWO. Re-run the script if a company changes its filing practice.
+stocks:
+  NVDA:  {name: NVIDIA Corp,               cik: "0001045810", sector_etf: SMH,
+          revenue_tag: Revenues,
+          aliases: [Nvidia]}
+  MRVL:  {name: Marvell Technology,        cik: "0001835632", sector_etf: SMH,
+          revenue_tag: RevenueFromContractWithCustomerExcludingAssessedTax,
+          aliases: [Marvell]}
+  MU:    {name: Micron Technology,         cik: "0000723125", sector_etf: SMH,
+          revenue_tag: RevenueFromContractWithCustomerExcludingAssessedTax,
+          aliases: [Micron]}
+  SNDK:  {name: Sandisk Corp,              cik: "0002023554", sector_etf: SMH,
+          history_starts: "2025-02-24",
+          notes: "Spun off from WDC 2025-02-24. Excluded from Phase 1 gate set.
+                  Verify backfill does not splice pre-2016 SanDisk.",
+          revenue_tag: RevenueFromContractWithCustomerExcludingAssessedTax,
+          aliases: [SanDisk]}
+  AVGO:  {name: Broadcom Inc,              cik: "0001730168", sector_etf: SMH,
+          revenue_tag: RevenueFromContractWithCustomerExcludingAssessedTax,
+          aliases: [Broadcom, VMware]}
+  QCOM:  {name: QUALCOMM Inc,              cik: "0000804328", sector_etf: SMH,
+          revenue_tag: Revenues,
+          aliases: [Qualcomm, Snapdragon]}
+  AAPL:  {name: Apple Inc,                 cik: "0000320193", sector_etf: XLK,
+          revenue_tag: RevenueFromContractWithCustomerExcludingAssessedTax,
+          aliases: [Apple]}
+  GOOGL: {name: Alphabet Inc,              cik: "0001652044", sector_etf: XLC,
+          revenue_tag: Revenues,
+          aliases: [Alphabet, Google, DeepMind, Waymo]}
+  NFLX:  {name: Netflix Inc,               cik: "0001065280", sector_etf: XLC,
+          revenue_tag: Revenues,
+          aliases: [Netflix]}
+  TTWO:  {name: Take-Two Interactive,      cik: "0000946581", sector_etf: XLC,
+          revenue_tag: RevenueFromContractWithCustomerExcludingAssessedTax,
+          aliases: [Take-Two, "Rockstar Games", "Grand Theft Auto", Zynga]}
+  TSLA:  {name: Tesla Inc,                 cik: "0001318605", sector_etf: XLY,
+          revenue_tag: Revenues,
+          aliases: [Tesla]}
+  SBUX:  {name: Starbucks Corp,            cik: "0000829224", sector_etf: XLY,
+          revenue_tag: Revenues,
+          aliases: [Starbucks]}
+
+# agent-plan.md §0.1b — sector ETFs are first-class attribution entities, regressed
+# on SPY alone. The daily batch runs these FIRST so stock attributions can
+# reference an already-computed sector story.
+sectors:
+  SMH: {name: VanEck Semiconductor ETF,        sector_etf: null, entity_type: sector}
+  XLK: {name: Technology Select Sector SPDR,   sector_etf: null, entity_type: sector}
+  XLC: {name: Communication Services SPDR,     sector_etf: null, entity_type: sector}
+  XLY: {name: Consumer Discretionary SPDR,     sector_etf: null, entity_type: sector}
+
+market:
+  SPY: {name: SPDR S&P 500 ETF}
+
+# ---------------------------------------------------------------------------
+# Other companies' news. A competitor's blowout quarter, a big customer building
+# its own chips, a platform's price change: news about ANOTHER company is often
+# what moves a watchlist stock, and none of it names the stock. Measured
+# 2026-09-13: of 15 researched moves whose cause swing never held, the largest
+# group were exactly this (Intel earnings lifting QCOM, Amazon's chip push
+# hitting NVDA, Microsoft moving custom-chip work from MRVL to AVGO).
+#
+# `related` lists, per watchlist stock, the companies whose news retrieval also
+# searches. Chosen by business relationship (direct competitors, the largest
+# customers, key suppliers and platforms), NOT fitted to past misses. Related
+# evidence ranks below the stock's own news (ranking.w_related_penalty) and the
+# prompt labels it as being about another company.
+#
+# `related_companies` holds those outside the watchlist: CIK from the SEC
+# company tickers file (2026-09-14, zero-padded) for 8-K polling, and curated
+# aliases for tagging articles that name them. Symbols shorter than 3 letters
+# (U, F, GM) are never matched as bare words; only their aliases are.
+# ---------------------------------------------------------------------------
+related:
+  NVDA:  [AMD, INTC, TSM, MSFT, AMZN, META, GOOGL]  # GPU/CPU rivals, foundry, largest customers (Alphabet also rivals it with TPUs)
+  MRVL:  [AVGO, NVDA, AMZN, MSFT]              # custom-silicon rival, partner, customers
+  MU:    [SNDK, WDC, STX, NVDA]                # memory/storage peers, HBM customer
+  SNDK:  [MU, WDC, STX]                        # NAND peers, former parent
+  AVGO:  [MRVL, NVDA, GOOGL, META, AAPL]       # rival, peer, custom-chip customers
+  QCOM:  [AAPL, INTC, AMD, ARM]                # modem customer, PC/AI rivals, licensor
+  AAPL:  [QCOM, GOOGL, TSM]                    # modem supplier, search/AI partner, foundry
+  GOOGL: [MSFT, META, AMZN]                    # cloud, ads and AI rivals
+  NFLX:  [DIS, WBD, PSKY, ROKU]                # streaming rivals, M&A counterparties, platform
+  TTWO:  [SONY, MSFT, RBLX, U]                 # console platforms, gaming peer, engine
+  TSLA:  [RIVN, GM, F]                         # EV and auto rivals
+  SBUX:  [MCD, CMG]                            # restaurant peers
+
+related_companies:
+  AMD:  {name: Advanced Micro Devices, cik: "0000002488", aliases: ["Advanced Micro Devices"]}
+  INTC: {name: Intel,                  cik: "0000050863", aliases: [Intel]}
+  TSM:  {name: TSMC,                   cik: "0001046179", aliases: [TSMC, "Taiwan Semiconductor"]}
+  ARM:  {name: Arm Holdings,           cik: "0001973239", aliases: ["Arm Holdings"]}
+  MSFT: {name: Microsoft,              cik: "0000789019", aliases: [Microsoft, Azure]}
+  AMZN: {name: Amazon,                 cik: "0001018724", aliases: [Amazon, AWS]}
+  META: {name: Meta Platforms,         cik: "0001326801", aliases: ["Meta Platforms", Meta]}
+  WDC:  {name: Western Digital,        cik: "0000106040", aliases: ["Western Digital"]}
+  STX:  {name: Seagate,                cik: "0001137789", aliases: [Seagate]}
+  SONY: {name: Sony,                   cik: "0000313838", aliases: [Sony, PlayStation]}
+  RBLX: {name: Roblox,                 cik: "0001315098", aliases: [Roblox]}
+  U:    {name: Unity Software,         cik: "0001810806", aliases: ["Unity Software"]}
+  DIS:  {name: Disney,                 cik: "0001744489", aliases: [Disney]}
+  WBD:  {name: Warner Bros. Discovery, cik: "0001437107", aliases: ["Warner Bros"]}
+  PSKY: {name: Paramount Skydance,     cik: "0002041610", aliases: [Paramount]}
+  ROKU: {name: Roku,                   cik: "0001428439", aliases: [Roku]}
+  RIVN: {name: Rivian,                 cik: "0001874178", aliases: [Rivian]}
+  GM:   {name: General Motors,         cik: "0001467858", aliases: ["General Motors"]}
+  F:    {name: Ford,                   cik: "0000037996", aliases: ["Ford Motor"]}
+  MCD:  {name: "McDonald's",           cik: "0000063908", aliases: ["McDonald's", McDonalds]}
+  CMG:  {name: Chipotle,               cik: "0001058090", aliases: [Chipotle]}
