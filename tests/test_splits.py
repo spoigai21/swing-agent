@@ -369,6 +369,42 @@ class TestARetryCostsACase:
             llm.invoke_with_retry(Flaky(), "p")
         assert len(calls) == 1, "the other two requests belong to other cases"
 
+    def test_an_overloaded_model_does_not_spend_the_ledger(self, monkeypatch, tmp_path):
+        """2026-09-20: 503s were counted, the ledger read 24 on a 20-request
+        day, and the 21:00 placebo batch then ignored it, tried anyway and
+        scored 2 more cases. Now the eval jobs size themselves from this
+        number, so an overcount silently skips work there is room for."""
+        import pytest
+
+        from swing.agent import llm
+
+        self._quiet_limiter(monkeypatch, tmp_path)
+
+        class Overloaded:
+            def invoke(self, prompt):
+                raise RuntimeError("503 UNAVAILABLE: the model is overloaded")
+
+        with llm.batch_mode(), pytest.raises(RuntimeError):
+            llm.invoke_with_retry(Overloaded(), "p")
+        assert llm.spent_today() == 0, "nothing was served, so nothing was charged"
+
+    def test_a_lost_response_stays_counted(self, monkeypatch, tmp_path):
+        """A timeout may mean the call was served and only the reply lost.
+        Undercounting walks the next run straight into a refusal."""
+        import pytest
+
+        from swing.agent import llm
+
+        self._quiet_limiter(monkeypatch, tmp_path)
+
+        class Silent:
+            def invoke(self, prompt):
+                raise TimeoutError("ReadTimeout")
+
+        with llm.batch_mode(), pytest.raises(TimeoutError):
+            llm.invoke_with_retry(Silent(), "p")
+        assert llm.spent_today() == 1
+
     def test_the_ledger_believes_google_over_itself(self, monkeypatch, tmp_path):
         """The ledger counts this process's attempts, so it drifts. A daily-cap
         refusal is the one moment the true remaining count is known."""

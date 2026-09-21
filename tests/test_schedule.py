@@ -226,11 +226,18 @@ class TestRefusedRequestsAreNotCharged:
         monkeypatch.setattr(llm, "QUOTA_PATH", tmp_path / "usage.json")
         return llm
 
-    def test_a_quota_rejection_is_recognised(self):
+    def test_a_refusal_is_recognised(self):
+        """⚠️ 503 used to be excluded here, on the reading that only a quota
+        refusal goes uncharged. 2026-09-20 disproved it: 503s pushed the ledger
+        to 24 on a 20-request day, and the 21:00 placebo batch — which ignores
+        the ledger by design — then scored 2 more cases. An overloaded model
+        serves nothing, so it charges nothing."""
         from swing.agent import llm
 
-        assert llm.is_quota_rejection(RuntimeError("429 RESOURCE_EXHAUSTED ... limit: 20"))
-        assert not llm.is_quota_rejection(RuntimeError("503 UNAVAILABLE high demand"))
+        assert llm.was_refused(RuntimeError("429 RESOURCE_EXHAUSTED ... limit: 20"))
+        assert llm.was_refused(RuntimeError("503 UNAVAILABLE high demand"))
+        assert not llm.was_refused(TimeoutError("ReadTimeout")), \
+            "the call may have been served and only the reply lost"
 
     def test_a_refused_call_leaves_the_ledger_unchanged(self, tmp_path, monkeypatch):
         import pytest
@@ -318,7 +325,7 @@ class TestAbstentionIsQueuedBeforePlacebo:
 
         called = {}
         monkeypatch.setattr(s, "DATA", tmp_path)
-        monkeypatch.setattr(s, "eval_budget_left", lambda: 8)
+        monkeypatch.setattr(s, "eval_budget_left", lambda *a: 8)
         monkeypatch.setattr(abstention, "pending", lambda: [1, 2, 3])
         monkeypatch.setattr(abstention, "run",
                             lambda **k: called.setdefault("ran", True) or {"attributed": 3})
@@ -380,7 +387,7 @@ class TestAFailedEvalRunDoesNotBurnTheDay:
 
         calls = []
         monkeypatch.setattr(s, "DATA", tmp_path)
-        monkeypatch.setattr(s, "eval_budget_left", lambda: 8)
+        monkeypatch.setattr(s, "eval_budget_left", lambda *a: 8)
         monkeypatch.setattr(abstention, "pending", lambda: [1, 2, 3])
         monkeypatch.setattr(abstention, "run",
                             lambda **k: calls.append(1) or {"attributed": 0})
@@ -397,7 +404,7 @@ class TestAFailedEvalRunDoesNotBurnTheDay:
 
         calls = []
         monkeypatch.setattr(s, "DATA", tmp_path)
-        monkeypatch.setattr(s, "eval_budget_left", lambda: 8)
+        monkeypatch.setattr(s, "eval_budget_left", lambda *a: 8)
         monkeypatch.setattr(abstention, "pending", lambda: [1])
         monkeypatch.setattr(abstention, "run",
                             lambda **k: calls.append(1) or {"attributed": 0})
@@ -425,7 +432,7 @@ class TestAFailedEvalRunDoesNotBurnTheDay:
         from swing.eval import abstention
 
         monkeypatch.setattr(s, "DATA", tmp_path)
-        monkeypatch.setattr(s, "eval_budget_left", lambda: 8)
+        monkeypatch.setattr(s, "eval_budget_left", lambda *a: 8)
         monkeypatch.setattr(abstention, "pending", lambda: [1])
         monkeypatch.setattr(abstention, "run",
                             lambda **k: pytest.fail("too early"))
@@ -455,7 +462,7 @@ class TestTheDayIsNotSpentBeforeYouAskAQuestion:
 
         limits = []
         monkeypatch.setattr(s, "DATA", tmp_path)
-        monkeypatch.setattr(s, "eval_budget_left", lambda: 6)
+        monkeypatch.setattr(s, "eval_budget_left", lambda *a: 6)
         monkeypatch.setattr(accuracy, "pending", lambda: list(range(35)))
         monkeypatch.setattr(accuracy, "run",
                             lambda limit=None: limits.append(limit) or {"attributed": limit})
@@ -469,7 +476,7 @@ class TestTheDayIsNotSpentBeforeYouAskAQuestion:
         from swing.eval import accuracy
 
         monkeypatch.setattr(s, "DATA", tmp_path)
-        monkeypatch.setattr(s, "eval_budget_left", lambda: 0)
+        monkeypatch.setattr(s, "eval_budget_left", lambda *a: 0)
         monkeypatch.setattr(accuracy, "pending", lambda: [1, 2, 3])
         monkeypatch.setattr(accuracy, "run",
                             lambda **k: pytest.fail("the reserve is not the eval jobs' to spend"))
@@ -482,3 +489,31 @@ class TestTheDayIsNotSpentBeforeYouAskAQuestion:
         assert s.eval_budget_left() == s.EVAL_BUDGET
         monkeypatch.setattr(llm, "remaining_today", lambda: 4)
         assert s.eval_budget_left() == 0, "4 left is the reserve, not eval budget"
+
+
+class TestAQuietWeekendStillSpendsTheBatchShare:
+    """A free-tier day does not roll over. The post-close batch is weekdays
+    only, so on a Saturday its three requests expire unspent unless the eval
+    backlog is allowed to claim them."""
+
+    def test_a_weekday_holds_the_batch_share_back(self, monkeypatch):
+        from swing.agent import llm
+
+        monkeypatch.setattr(llm, "remaining_today", lambda: 20)
+        friday = datetime(2026, 9, 18, 9, 0, tzinfo=s.ET)
+        assert s.eval_budget_left(friday) == s.EVAL_BUDGET
+
+    def test_a_weekend_lends_it_to_the_backlog(self, monkeypatch):
+        from swing.agent import llm
+
+        monkeypatch.setattr(llm, "remaining_today", lambda: 20)
+        sunday = datetime(2026, 9, 20, 9, 0, tzinfo=s.ET)
+        assert sunday.weekday() >= 5
+        assert s.eval_budget_left(sunday) == s.EVAL_BUDGET + s.DAILY_ATTRIBUTIONS
+
+    def test_the_reserve_survives_the_weekend(self, monkeypatch):
+        from swing.agent import llm
+
+        monkeypatch.setattr(llm, "remaining_today", lambda: s.INTERACTIVE_RESERVE)
+        sunday = datetime(2026, 9, 20, 9, 0, tzinfo=s.ET)
+        assert s.eval_budget_left(sunday) == 0

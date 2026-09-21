@@ -69,11 +69,18 @@ NIGHTLY_PLACEBO_CASES = EVAL_BUDGET
 GATE4_CASES = 200                   # agent-plan.md 4.3
 
 
-def eval_budget_left() -> int:
-    """Requests the eval jobs may still spend today, reserve untouched."""
+def eval_budget_left(now: datetime | None = None) -> int:
+    """Requests the eval jobs may still spend today, reserve untouched.
+
+    The post-close batch only fires on weekdays, so on a Saturday or Sunday its
+    three requests are not spoken for by anything. Holding them back would let
+    them expire at midnight PT unspent, and a free-tier day does not roll over.
+    """
     from swing.agent.llm import remaining_today
 
-    return max(0, remaining_today() - DAILY_ATTRIBUTIONS - INTERACTIVE_RESERVE)
+    local = (now or datetime.now(UTC)).astimezone(ET)
+    batch_share = 0 if local.weekday() >= 5 else DAILY_ATTRIBUTIONS
+    return max(0, remaining_today() - batch_share - INTERACTIVE_RESERVE)
 
 
 def due(now: datetime, zone: ZoneInfo, at: time, last_run: date | None,
@@ -157,7 +164,7 @@ def _eval_job_due(name: str, at, now: datetime | None, pending, run) -> int:
         return 0                      # finished; nothing left to spend quota on
     if not _may_attempt(name, now):
         return 0
-    budget = eval_budget_left()
+    budget = eval_budget_left(now)
     if budget <= 0:
         return 0                      # the reserve is not the eval jobs' to spend
     _record_attempt(name, now)

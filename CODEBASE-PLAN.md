@@ -2400,3 +2400,26 @@ reserve spent the day before breakfast and left `swing` answering
 no `limit`, were about to do the identical thing from the other direction.
 `eval_budget_left()` is `remaining_today()` minus the batch and the reserve, so
 the two eval jobs share one ceiling and the reserve is never theirs to spend.
+
+### §16.34 An overloaded model charges nothing
+
+2026-09-20 ended with the ledger reading 24 on a 20-request day. At 21:00 the
+placebo batch logged "ledger says 0 requests left today (advisory)", tried
+anyway because it gates on Google's 429 and never on the ledger, and scored
+**2 more cases**. The ledger was wrong by at least two.
+
+The cause: `record_call()` un-counted a 429 but counted a 503. Both serve
+nothing. `was_refused()` now covers both, and a timeout stays counted — the
+request may have been served and only the reply lost, and an undercount walks
+the next run into a refusal, which is the worse direction to be wrong in.
+
+This mattered more than it used to. The placebo batch treats the ledger as
+advisory, but `eval_budget_left()` does not — it sizes the 00:05 and 00:20 jobs
+from `remaining_today()`, so an overcount silently skips work there is room for.
+That is exactly what happened on 2026-09-21: six of the twelve requests the
+ledger recorded were 503s, and correcting it to six freed the budget for six
+more cases.
+
+Two backstops keep the ledger from drifting for long: `note_daily_cap()` pins
+the day to its full quota the moment Google refuses, and the placebo batch never
+consults it at all.

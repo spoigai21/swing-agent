@@ -131,10 +131,25 @@ def remaining_today() -> int:
     return max(0, DAILY_QUOTA - spent_today())
 
 
-def is_quota_rejection(exc: BaseException) -> bool:
-    """A 429 RESOURCE_EXHAUSTED: the request was refused, not served."""
+def was_refused(exc: BaseException) -> bool:
+    """The model returned nothing, so nothing was charged.
+
+    A 429 RESOURCE_EXHAUSTED is refused before any work happens. So is a 503
+    "the model is overloaded" — and on 2026-09-20 counting those inflated the
+    ledger to 24 on a 20-request day, while the 21:00 placebo batch ignored the
+    ledger, tried anyway, and scored 2 more cases against a quota the ledger
+    swore was gone.
+
+    ⚠️ A timeout is NOT this. The request may well have been served and only the
+    response lost, so it stays counted — an overcount there costs a case, an
+    undercount walks the next run into a refusal.
+    """
     text = f"{type(exc).__name__} {exc}"
-    return "RESOURCE_EXHAUSTED" in text or "429" in text
+    return any(s in text for s in ("RESOURCE_EXHAUSTED", "429", "503", "UNAVAILABLE"))
+
+
+# Kept: schedule and eval code still speak of a "quota rejection".
+is_quota_rejection = was_refused
 
 
 def _write_quota(day: str, value: int) -> int:
@@ -215,7 +230,7 @@ def invoke_with_retry(runnable, prompt: str):
         # so an inflated ledger makes Gate 4 skip capacity it actually has.
         if is_daily_cap(exc):
             note_daily_cap()    # the day is over; stop guessing at what is left
-        elif is_quota_rejection(exc):
+        elif was_refused(exc):
             record_call(-1)     # refused, never served, never charged
         raise
 
