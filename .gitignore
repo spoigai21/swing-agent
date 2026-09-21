@@ -10,3 +10,10 @@ __pycache__/
 data/
 *.log
 .DS_Store
+
+# Build artifacts. setuptools regenerates src/*.egg-info on every build, so a
+# tracked copy produces a spurious diff after anyone runs `uv build`.
+*.egg-info/
+dist/
+build/
+*.whl
