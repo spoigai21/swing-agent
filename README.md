@@ -86,8 +86,13 @@ pip install swing-agent        # or: uv tool install swing-agent
 swing init                     # asks for your keys, sets up the database
 ```
 
-`swing init` walks you through the two things nothing works without — an SEC
-contact string and a Postgres URL — and writes them to `~/.swing/.env`.
+The install is about 1 GB, mostly PyTorch for the embedding model that ranks
+news — more on Linux, where PyTorch's default build bundles GPU libraries. That
+model runs on your machine. Gemini only ever sees the price move and the
+headlines (plus a summary of up to 300 characters each) of the news it is asked
+to judge.
+
+`swing init` walks you through setup and writes everything to `~/.swing/.env`.
 
 You need **Postgres with pgvector**. If you don't have one:
 
@@ -106,15 +111,46 @@ swing collect --daemon &       # keep running — see below
 swing why NVDA
 ```
 
-### Keys
+### Your Gemini API key
+
+**swing works with Google Gemini only.** OpenAI, Anthropic and other providers'
+keys will not work. Every number in this README was measured on
+`gemini-3.6-flash`, and the free tier is enough to use it daily.
+
+1. Get a free key at **[aistudio.google.com/apikey](https://aistudio.google.com/apikey)**
+   — sign in with a Google account and click *Create API key*. It starts with `AIza`.
+2. Give it to swing:
+
+   ```bash
+   swing key                      # paste when asked; typing is hidden
+   ```
+
+That's it. The key is checked with Google before it is saved, so a typo is
+caught immediately, and checking it does **not** use any of your daily requests.
+
+```bash
+swing key --check                  # is my key still working?
+swing key                          # replace it
+```
+
+The free tier allows **20 explanations a day** per Google Cloud project — not
+per key, so a second key from the same project adds nothing. Only moves that
+are actually unusual use a request; quiet days, charts and everything else are
+free. When the day's 20 are gone, `swing` says so and resets at midnight Pacific.
+
+If you already export `GEMINI_API_KEY` in your shell, that copy takes priority
+over the saved one — `swing key` will warn you if they differ.
+
+### Other keys
 
 | Key | Needed for | Free? |
 |---|---|---|
-| `SEC_USER_AGENT` | SEC filings. Any string with your email. | yes |
+| `SEC_USER_AGENT` | SEC filings. Any string with your email in it. | yes |
 | `DATABASE_URL` | everything | yes |
-| `GEMINI_API_KEY` | writing explanations — [aistudio.google.com/apikey](https://aistudio.google.com/apikey) | yes, 20 requests/day |
-| `FINNHUB_API_KEY` | company news, analyst ratings | optional |
+| `FINNHUB_API_KEY` | company news, analyst ratings | optional, free tier |
 | `GOOGLE_CLOUD_PROJECT` | GDELT wire coverage via BigQuery | optional, 1 TB/month free |
+
+`swing init` asks for the first two. Edit `~/.swing/.env` for the rest.
 
 ### ⚠️ Keep the collector running
 
@@ -145,6 +181,7 @@ swing compare NVDA AVGO MRVL   # idiosyncratic share side by side
 
 ```bash
 swing init                     # first-time setup
+swing key                      # add or replace your Gemini API key
 swing collect --daemon         # the news collector
 swing health                   # per-source freshness, broken feeds
 swing monitor                  # operational dashboard
@@ -201,7 +238,7 @@ to keep them somewhere else.
 
 ```bash
 git clone https://github.com/spoigai21/swing-agent && cd swing-agent
-uv sync --extra data --extra llm --extra dev
+uv sync --extra dev
 docker compose up -d
 uv run pytest -q
 ```

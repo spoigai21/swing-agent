@@ -105,7 +105,7 @@ def build_parser() -> argparse.ArgumentParser:
     an.add_argument("--limit", type=int, default=10)
     an.add_argument("--progress", action="store_true")
 
-    sub.add_parser("metrics", help="the five evaluation metrics")
+    sub.add_parser("metrics", help="the seven evaluation metrics")
 
     al = sub.add_parser("alert", help="notify on large moves (|z| >= 3)")
     al.add_argument("--days", type=int, default=3)
@@ -126,6 +126,14 @@ def build_parser() -> argparse.ArgumentParser:
     pl.add_argument("--n", type=int, default=30)
     pl.add_argument("--seed", type=int, default=0)
     sub.add_parser("dbinit", help="apply the database schema (idempotent)")
+
+    k = sub.add_parser("key", help="add, replace or test your Gemini API key")
+    k.add_argument("value", nargs="?",
+                   help="the key; omit it to be prompted with hidden input")
+    k.add_argument("--check", action="store_true",
+                   help="test the key currently in use (free, uses no quota)")
+    k.add_argument("--no-verify", action="store_true",
+                   help="save without checking it against Google first")
 
     it = sub.add_parser("init", help="first-time setup: config, keys, database")
     it.add_argument("--home", help="where to put config and data (default ~/.swing)")
@@ -151,6 +159,11 @@ def dispatch(args: argparse.Namespace) -> int:
         require_initialised()
 
     match args.cmd:
+        case "key":
+            from swing.interface import setup
+
+            return setup.key_command(args.value, check=args.check,
+                                     verify=not args.no_verify)
         case "init":
             from pathlib import Path
 

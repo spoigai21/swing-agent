@@ -460,9 +460,20 @@ def render_verdict(verdict: str, payload: dict, note: str | None,
     return "\n".join(lines)
 
 
+_WHY_NO_ANSWER = {
+    "invalid_key": ("\nGoogle rejected your Gemini API key, so there's no checked reason. "
+                    "Replace it with:  swing key"),
+    "daily_cap": ("\nThe Gemini free tier's 20 requests for today are used up, so there's "
+                  "no checked reason yet. It resets at midnight Pacific."),
+}
+
+
 def model_unavailable(evidence: list[dict]) -> str:
-    lines = [("\nGemini didn't answer (it may be overloaded, or past the free tier's "
-              "daily limit), so there's no checked reason yet. Ask again in a few minutes.")]
+    from swing.agent.llm import last_failure
+
+    lines = [_WHY_NO_ANSWER.get(last_failure() or "",
+             "\nGemini didn't answer (it may be overloaded), so there's no checked "
+             "reason yet. Ask again in a few minutes.")]
     if evidence:
         lines.append("  News from before the move, most relevant first (not yet checked):")
         lines += [f"  • {_when(r['earliest_published'])} · {_source_label(r['source'])}"

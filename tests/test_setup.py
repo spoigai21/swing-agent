@@ -223,3 +223,133 @@ class TestTheDefaultModelIsTheOneThatWasMeasured:
         assert default == "gemini-3.6-flash", (
             f"default is {default!r}; the README's confabulation and coverage "
             "numbers were measured on gemini-3.6-flash. Change both together.")
+
+
+class TestAddingAGeminiKeyIsOneCommand:
+    """`swing key` replaces "find the hidden .env and edit it by hand"."""
+
+    def _home(self, tmp_path, monkeypatch, env_text=""):
+        env = tmp_path / ".env"
+        env.write_text(env_text)
+        monkeypatch.setattr("swing.paths.ENV_FILE", env)
+        monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+        return env
+
+    def test_a_good_key_is_saved(self, tmp_path, monkeypatch, capsys):
+        env = self._home(tmp_path, monkeypatch, "SEC_USER_AGENT=a a@b.c\n")
+        monkeypatch.setattr(setup, "check_gemini_key", lambda k, m=None: (True, "ok"))
+        assert setup.key_command("AIzaGOODKEY1234") == 0
+        assert setup.read_env(env)["GEMINI_API_KEY"] == "AIzaGOODKEY1234"
+        assert "AIzaGOODKEY1234" not in capsys.readouterr().out, "never echo the key"
+
+    def test_a_bad_key_is_not_saved(self, tmp_path, monkeypatch):
+        """Caught here, not as a vague failure on the next `why`."""
+        env = self._home(tmp_path, monkeypatch, "GEMINI_API_KEY=AIzaOLDKEY9999\n")
+        monkeypatch.setattr(setup, "check_gemini_key",
+                            lambda k, m=None: (False, "Google rejected this key"))
+        assert setup.key_command("AIzaTYPO") == 1
+        assert setup.read_env(env)["GEMINI_API_KEY"] == "AIzaOLDKEY9999"
+
+    def test_pasted_quotes_and_spaces_are_stripped(self, tmp_path, monkeypatch):
+        env = self._home(tmp_path, monkeypatch)
+        monkeypatch.setattr(setup, "check_gemini_key", lambda k, m=None: (True, "ok"))
+        setup.key_command('  "AIzaQUOTED5678"  ')
+        assert setup.read_env(env)["GEMINI_API_KEY"] == "AIzaQUOTED5678"
+
+    def test_no_argument_prompts_with_hidden_input(self, tmp_path, monkeypatch):
+        env = self._home(tmp_path, monkeypatch)
+        monkeypatch.setattr(setup, "check_gemini_key", lambda k, m=None: (True, "ok"))
+        monkeypatch.setattr("getpass.getpass", lambda prompt="": "AIzaHIDDEN0000")
+        monkeypatch.setattr("builtins.input",
+                            lambda *a: pytest.fail("a key must not be typed visibly"))
+        assert setup.key_command(None) == 0
+        assert setup.read_env(env)["GEMINI_API_KEY"] == "AIzaHIDDEN0000"
+
+    def test_saving_leaves_the_rest_of_the_file_alone(self, tmp_path, monkeypatch):
+        env = self._home(tmp_path, monkeypatch,
+                         "# my notes\nDATABASE_URL=postgresql://x\n\nGEMINI_API_KEY=old\n")
+        monkeypatch.setattr(setup, "check_gemini_key", lambda k, m=None: (True, "ok"))
+        setup.key_command("AIzaNEWKEY4321")
+        text = env.read_text()
+        assert "# my notes" in text and "DATABASE_URL=postgresql://x" in text
+        assert text.count("GEMINI_API_KEY=") == 1
+        assert not env.stat().st_mode & 0o077
+
+    def test_a_shell_export_that_would_override_it_is_called_out(
+            self, tmp_path, monkeypatch, capsys):
+        """An exported variable beats .env, so the new key would silently lose."""
+        self._home(tmp_path, monkeypatch)
+        monkeypatch.setenv("GEMINI_API_KEY", "AIzaSTALE0000")
+        monkeypatch.setattr(setup, "check_gemini_key", lambda k, m=None: (True, "ok"))
+        setup.key_command("AIzaFRESH1111")
+        assert "wins over the saved one" in capsys.readouterr().out
+
+    def test_check_reports_without_saving(self, tmp_path, monkeypatch, capsys):
+        env = self._home(tmp_path, monkeypatch, "GEMINI_API_KEY=AIzaCURRENT777\n")
+        monkeypatch.setattr(setup, "check_gemini_key", lambda k, m=None: (True, "key works"))
+        assert setup.key_command(check=True) == 0
+        assert "…T777" in capsys.readouterr().out
+        assert env.read_text() == "GEMINI_API_KEY=AIzaCURRENT777\n"
+
+
+class TestInitNeverShowsAKey:
+    def test_a_saved_key_is_masked_in_the_prompt(self, monkeypatch):
+        prompts = []
+        monkeypatch.setattr("getpass.getpass",
+                            lambda prompt="": prompts.append(prompt) or "")
+        setup._ask("GEMINI_API_KEY", "blurb", "", False, "AIzaSECRETVALUE9876")
+        assert "SECRETVALUE" not in prompts[0]
+        assert "…9876" in prompts[0]
+
+    def test_masking_reveals_at_most_four_characters(self):
+        assert setup.mask("AIzaSyABCDEFGHIJ1234") == "…1234"
+        assert setup.mask("short") == "set"
+
+
+class TestTheFailureMessageMatchesTheFailure:
+    """Every failure said "Gemini may be overloaded, ask again in a few minutes"
+    — wrong advice for a bad key, where waiting fixes nothing."""
+
+    def test_each_kind_is_recognised(self):
+        from swing.agent.llm import failure_kind
+
+        assert failure_kind(RuntimeError("400 API key not valid.")) == "invalid_key"
+        assert failure_kind(RuntimeError(
+            "429 GenerateRequestsPerDayPerProjectPerModel-FreeTier")) == "daily_cap"
+        assert failure_kind(RuntimeError("503 UNAVAILABLE")) == "unavailable"
+
+    @pytest.mark.parametrize("kind, phrase", [
+        ("invalid_key", "swing key"),
+        ("daily_cap", "midnight Pacific"),
+        ("unavailable", "overloaded"),
+    ])
+    def test_the_user_is_told_what_to_do(self, monkeypatch, kind, phrase):
+        from swing.agent import llm
+        from swing.interface import explain
+
+        monkeypatch.setattr(llm, "_last_failure", kind)
+        assert phrase in explain.model_unavailable([])
+
+    def test_a_missing_key_names_the_command_that_fixes_it(self, monkeypatch):
+        from swing.agent import llm
+        from swing.common import settings
+
+        cfg = settings.get_settings().model_copy(update={"gemini_api_key": ""})
+        monkeypatch.setattr(llm, "get_settings", lambda: cfg)
+        with pytest.raises(RuntimeError, match="swing key"):
+            llm.get_llm()
+
+
+class TestTheDefaultInstallRunsEveryUserCommand:
+    """The README said `pip install swing-agent`; that install could not run
+    `why` (numpy) or `backfill` (pandas), which lived behind extras."""
+
+    def test_nothing_a_user_runs_is_hidden_behind_an_extra(self):
+        import tomllib
+
+        project = tomllib.loads((paths.ROOT / "pyproject.toml").read_text())["project"]
+        base = " ".join(project["dependencies"])
+        for needed in ("numpy", "pandas", "yfinance", "google-cloud-bigquery",
+                       "langgraph", "langchain-google-genai",
+                       "sentence-transformers", "datasketch"):
+            assert needed in base, f"{needed} is imported by a user command"

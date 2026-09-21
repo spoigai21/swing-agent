@@ -166,6 +166,27 @@ def _write_quota(day: str, value: int) -> int:
 
 
 _daily_cap_day: str | None = None
+_last_failure: str | None = None
+
+
+def failure_kind(exc: BaseException) -> str:
+    """Why the model did not answer, in the terms the user can act on.
+
+    ⚠️ Every failure used to print "Gemini didn't answer (it may be overloaded,
+    or past the free tier's daily limit)". For a mistyped or revoked key that is
+    actively misleading: waiting a few minutes, as it advised, fixes nothing.
+    """
+    text = str(exc)
+    if "API key not valid" in text or "API_KEY_INVALID" in text:
+        return "invalid_key"
+    if is_daily_cap(exc):
+        return "daily_cap"
+    return "unavailable"
+
+
+def last_failure() -> str | None:
+    """The kind of the most recent failed call in this process, if any."""
+    return _last_failure
 
 
 def daily_cap_reached() -> bool:
@@ -227,6 +248,8 @@ def invoke_with_retry(runnable, prompt: str):
         # tenacity swallows the first two, so a batch that served 7 calls logged
         # 23 — and schedule.placebo_if_due sizes the night from remaining_today(),
         # so an inflated ledger makes Gate 4 skip capacity it actually has.
+        global _last_failure
+        _last_failure = failure_kind(exc)
         if is_daily_cap(exc):
             note_daily_cap()    # the day is over; stop guessing at what is left
         elif was_refused(exc):
@@ -256,7 +279,11 @@ def get_llm(**kwargs: Any):
     from langchain_google_genai import ChatGoogleGenerativeAI
 
     settings = get_settings()
-    settings.require("gemini_api_key")
+    if not settings.gemini_api_key:
+        # Not "missing required settings: gemini_api_key" — say what to do.
+        raise RuntimeError(
+            "no Gemini API key set. Get one free at https://aistudio.google.com/apikey, "
+            "then run:  swing key")
     model = settings.attribution_model.split(":", 1)[-1]  # tolerate a 'google_genai:' prefix
 
     # langchain-google-genai reads GOOGLE_API_KEY from the environment, but our
