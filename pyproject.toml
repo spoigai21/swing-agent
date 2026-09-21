@@ -2,7 +2,23 @@
 name = "swing-agent"
 version = "0.1.0"
 description = "Stock swing attribution — detects unusual moves and explains them, or abstains"
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{ name = "Shayan Poigai", email = "spoigai21@gmail.com" }]
+keywords = ["stocks", "attribution", "news", "llm", "finance", "equities", "sec-edgar"]
 requires-python = ">=3.12,<3.13"
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: Console",
+    "Intended Audience :: Financial and Insurance Industry",
+    "Intended Audience :: Developers",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Office/Business :: Financial :: Investment",
+    "Typing :: Typed",
+]
 dependencies = [
     "psycopg[binary]>=3.2",
     "sqlalchemy>=2.0",
@@ -28,6 +44,11 @@ llm = ["langgraph>=1.0", "langchain>=1.0", "langchain-core>=1.0",
        "langchain-google-genai>=2.0", "google-genai>=1.0"]
 dev = ["pytest>=8.0", "matplotlib>=3.9", "ruff>=0.6"]
 full = ["swing-agent[data,ml,llm,dev]"]
+
+[project.urls]
+Homepage = "https://github.com/spoigai21/swing-agent"
+Repository = "https://github.com/spoigai21/swing-agent"
+Issues = "https://github.com/spoigai21/swing-agent/issues"
 
 [project.scripts]
 swing = "swing.cli:main"

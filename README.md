@@ -136,3 +136,28 @@ config/                 watchlist.yaml, sources.yaml, thresholds.yaml, prompts/
 Design and findings: `CODEBASE-PLAN.md`. Package layout is `src/swing/` so a
 globally installed `swing` does not put `common` or `agent` on the system as
 top-level import names.
+
+## License
+
+MIT — see [LICENSE](LICENSE).
+
+## Disclaimer
+
+**This is not investment advice.** It is a research tool that reports what the
+news said before a price move. It does not predict prices, recommend trades, or
+know anything about your situation.
+
+Two limits are worth stating plainly, because they are measured rather than
+guessed:
+
+* It finds a catalyst for roughly **70%** of the moves it is asked about. The
+  rest come back `unexplained`, and the run `swing metrics` prints is the real
+  number, not a target.
+* `unexplained` means *no catalyst was found in the sources collected*, which is
+  not the same as *no catalyst existed*. Coverage is bounded by which feeds have
+  been running and for how long.
+
+The agent is built to abstain rather than guess — in 38 tests where it was given
+deliberately unrelated evidence, it invented a cause **0** times — but an
+explanation it does give is still a starting point for your own reading, not a
+conclusion. Verify anything you act on against the linked source.

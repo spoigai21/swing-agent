@@ -2,7 +2,24 @@ Metadata-Version: 2.4
 Name: swing-agent
 Version: 0.1.0
 Summary: Stock swing attribution — detects unusual moves and explains them, or abstains
+Author-email: Shayan Poigai <spoigai21@gmail.com>
+License-Expression: MIT
+Project-URL: Homepage, https://github.com/spoigai21/swing-agent
+Project-URL: Repository, https://github.com/spoigai21/swing-agent
+Project-URL: Issues, https://github.com/spoigai21/swing-agent/issues
+Keywords: stocks,attribution,news,llm,finance,equities,sec-edgar
+Classifier: Development Status :: 4 - Beta
+Classifier: Environment :: Console
+Classifier: Intended Audience :: Financial and Insurance Industry
+Classifier: Intended Audience :: Developers
+Classifier: Operating System :: OS Independent
+Classifier: Programming Language :: Python :: 3
+Classifier: Programming Language :: Python :: 3.12
+Classifier: Topic :: Office/Business :: Financial :: Investment
+Classifier: Typing :: Typed
 Requires-Python: <3.13,>=3.12
+Description-Content-Type: text/markdown
+License-File: LICENSE
 Requires-Dist: psycopg[binary]>=3.2
 Requires-Dist: sqlalchemy>=2.0
 Requires-Dist: alembic>=1.13
@@ -40,3 +57,143 @@ Requires-Dist: matplotlib>=3.9; extra == "dev"
 Requires-Dist: ruff>=0.6; extra == "dev"
 Provides-Extra: full
 Requires-Dist: swing-agent[data,dev,llm,ml]; extra == "full"
+Dynamic: license-file
+
+# Stock Swing Attribution Agent
+
+Detects unusual price moves, retrieves news across sources, and produces an
+evidence-backed explanation of *why* a stock moved — or states that no catalyst
+can be identified.
+
+Specs: `agent-plan.md` (what and why) · `data-sources.md` (APIs) ·
+`CODEBASE-PLAN.md` (module layout, schema, build order).
+
+## Using it
+
+```bash
+swing                                   # opens the prompt
+> why is NVDA down?
+> what happened to Tesla yesterday?
+> why did MU jump on Aug 27?
+```
+
+One-shot forms: `swing ask "why is NVDA down?"` · `swing why NVDA --date 2026-08-27`.
+
+- Covers the 12 watchlist stocks: NVDA MRVL MU SNDK AVGO QCOM AAPL GOOGL NFLX TTWO TSLA SBUX.
+- Each question fetches fresh prices and news first. A normal day is answered in
+  a second or two with no model call; an unusual move takes ~20s and uses one
+  Gemini request (free tier: 20/day). Asking again reuses the stored answer.
+- Evidence: SEC filings, company press releases, Reuters and Bloomberg wire stories,
+  WSJ / CNBC / MarketWatch / Dow Jones, analyst rating changes, and news about
+  related companies (competitors, big customers, suppliers), each placed before or
+  after the moment the move started.
+- When nothing published before the move explains it, it says so instead of guessing.
+- It refuses forecasts ("is NVDA a buy?").
+- Answers are only as good as the news it holds, so keep the collector running (below).
+
+Everything else (`annotate`, `placebo`, `metrics`, `daily`, ...) is evaluation
+and operations tooling.
+
+---
+
+## Runbook
+
+### Installing the `swing` command
+
+Installed globally (editable, so code edits take effect immediately):
+
+```bash
+uv tool install --editable ".[data,ml,llm]" --python 3.12 --force
+swing health          # per-source feed health
+swing coverage        # what data do I have
+swing dbinit          # apply schema, idempotent
+```
+
+### The collector
+
+```bash
+tail -f data/collector.log            # watch it
+swing health                          # per-source counts + broken-feed check
+kill $(cat data/collector.pid)        # stop
+nohup caffeinate -is swing collect --daemon > data/collector.nohup.log 2>&1 &
+  echo $! > data/collector.pid        # start  (see the sleep caveat below)
+```
+
+Polls: EDGAR every 10 min (12 stocks + 21 related companies) · IR/press RSS every
+10-15 min · Finnhub news every 6 h · analyst ratings hourly · normalize every
+5 min · dead-feed check every 30 min.
+
+Scheduled inside the collector (`interface/schedule.py`), so no cron is needed:
+- **Weekdays 16:45 ET** — refresh, detect the day's swings, explain up to 3 new big
+  moves, alert on |z| ≥ 3.
+- **Nightly 00:30 PT** — 17 placebo cases toward Gate 4's 200 (about 12 nights);
+  the job stops by itself at 200.
+
+That is up to 20 of the 20 free Gemini requests a day: on a day the post-close run
+explains moves, unusual-move questions wait until the quota resets at midnight
+Pacific. Normal days and repeated questions cost nothing. Each job records its last run in
+`data/schedule_*.last`; delete a file to make that job run again today.
+
+### ⚠️ Two persistence caveats — read both
+
+**1. This Mac sleeps after 1 minute idle** (`pmset` reports `sleep 1`,
+`powernap 0` on battery). `time.monotonic()` freezes across macOS sleep, so the
+collector stops polling entirely — observed directly: one poll, then 61 minutes
+with zero CPU and no polls. That is silent, permanent news loss.
+
+The `caffeinate -is` wrapper above is the mitigation and is verified working,
+but it keeps the Mac awake and does not survive a lid close. **The real fix is
+an always-on host** — a $5 VPS or a Raspberry Pi running Postgres and the
+collector. Every other part of this system is a batch job that can run anywhere;
+only the collector must never stop.
+
+**2. The collector runs under `nohup`. It survives closing the terminal,
+but not a reboot or logout.** A macOS LaunchAgent was tried and does not work
+from this location: `~/Desktop` is TCC-protected, and a launchd background agent
+does not inherit Full Disk Access, so the Python interpreter blocks forever in
+`_PyConfig_InitPathConfig → open()` before any project code runs.
+
+Two durable fixes, either one is a few minutes:
+
+1. **Move the repo out of `~/Desktop`** (e.g. `~/projects/swing-agent`), recreate
+   the venv there, then install `scripts/com.swingagent.collector.plist`:
+   ```bash
+   sed "s|__REPO__|$PWD|g" scripts/com.swingagent.collector.plist \
+     > ~/Library/LaunchAgents/com.swingagent.collector.plist
+   launchctl load ~/Library/LaunchAgents/com.swingagent.collector.plist
+   ```
+2. **Grant Full Disk Access** to the interpreter in
+   System Settings → Privacy & Security → Full Disk Access, then load the plist.
+
+Until then: after any reboot, restart the collector with the command above.
+**Check `--report` shows growth every few days.** A silently dead feed for three
+weeks is three weeks of unrecoverable data.
+
+### Database
+
+```bash
+docker compose up -d                  # Postgres 16 + pgvector on :5433
+docker compose ps
+swing dbinit && .venv/bin/alembic upgrade head   # schema + migrations, idempotent
+docker exec -e PGPASSWORD=swing swing-db psql -U swing -d swing_agent
+```
+
+---
+
+## Layout
+
+```
+src/swing/
+  cli.py, commands.py   the `swing` command and its subcommands
+  interface/explain.py  one question -> prices, news, split, reason   (what `swing` runs)
+  ingest/               collector, EDGAR, RSS, Finnhub, prices, normalize
+  analysis/             market/sector split, swing detection, onset, clustering, ranking
+  agent/                LangGraph attribution: Gemini call + code-level citation/abstention guards
+  eval/                 annotation, placebo test, metrics
+  store/                schema.sql, models, migrations
+config/                 watchlist.yaml, sources.yaml, thresholds.yaml, prompts/
+```
+
+Design and findings: `CODEBASE-PLAN.md`. Package layout is `src/swing/` so a
+globally installed `swing` does not put `common` or `agent` on the system as
+top-level import names.

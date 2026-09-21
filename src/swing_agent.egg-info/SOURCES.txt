@@ -1,3 +1,4 @@
+LICENSE
 README.md
 pyproject.toml
 src/swing/__init__.py
@@ -16,6 +17,7 @@ src/swing/agent/validate.py
 src/swing/analysis/__init__.py
 src/swing/analysis/decompose.py
 src/swing/analysis/dedup.py
+src/swing/analysis/earnings.py
 src/swing/analysis/factors.py
 src/swing/analysis/novelty.py
 src/swing/analysis/onset.py
@@ -31,8 +33,11 @@ src/swing/common/timeutil.py
 src/swing/common/vectors.py
 src/swing/common/versioning.py
 src/swing/eval/__init__.py
+src/swing/eval/abstention.py
+src/swing/eval/accuracy.py
 src/swing/eval/annotate.py
 src/swing/eval/cache.py
+src/swing/eval/contamination.py
 src/swing/eval/harness.py
 src/swing/eval/placebo.py
 src/swing/ingest/__init__.py
@@ -57,6 +62,11 @@ src/swing/interface/monitor.py
 src/swing/interface/query.py
 src/swing/interface/schedule.py
 src/swing/models/__init__.py
+src/swing/models/baseline.py
+src/swing/models/classifier.py
+src/swing/models/events.py
+src/swing/models/pairs.py
+src/swing/models/splits.py
 src/swing/store/__init__.py
 src/swing/store/models.py
 src/swing/store/queries.py
@@ -90,6 +100,7 @@ tests/test_placebo.py
 tests/test_schedule.py
 tests/test_schema.py
 tests/test_sources.py
+tests/test_splits.py
 tests/test_timeutil.py
 tests/test_versioning.py
 tests/test_windows.py
