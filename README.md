@@ -31,6 +31,31 @@ a **competitor's** SEC filing, timestamped 2h26m before the drop began.
 
 ---
 
+## What it covers
+
+**12 US stocks**, chosen to span chips, big tech and consumer names:
+
+| Chips | Big tech & media | Consumer |
+|---|---|---|
+| NVDA · AVGO · MU · MRVL · QCOM · SNDK | AAPL · GOOGL · NFLX · TTWO | TSLA · SBUX |
+
+Ask about anything else and it says so rather than guessing:
+
+```console
+$ swing why AMZN
+I only cover these stocks for now: AAPL, AVGO, GOOGL, MRVL, MU, NFLX, NVDA, QCOM, SBUX, SNDK, TSLA, TTWO.
+```
+
+The list is fixed because each stock carries hand-checked setup: its SEC
+identifier, the names the press uses for it (auto-generating these matched the
+bare word "Interactive" for Take-Two), the financial tag it actually files
+revenue under, its sector ETF, and the competitors, customers and suppliers
+whose news can move it. You can add a stock by editing
+`~/.swing/config/watchlist.yaml`; a `swing add TICKER` command that does this
+for you is planned.
+
+---
+
 ## The one thing to know
 
 `swing` abstains. When nothing published before a move explains it, it says
