@@ -2401,25 +2401,24 @@ no `limit`, were about to do the identical thing from the other direction.
 `eval_budget_left()` is `remaining_today()` minus the batch and the reserve, so
 the two eval jobs share one ceiling and the reserve is never theirs to spend.
 
-### §16.34 An overloaded model charges nothing
 
-2026-09-20 ended with the ledger reading 24 on a 20-request day. At 21:00 the
-placebo batch logged "ledger says 0 requests left today (advisory)", tried
-anyway because it gates on Google's 429 and never on the ledger, and scored
-**2 more cases**. The ledger was wrong by at least two.
+### §16.34 Never hand-correct the ledger
 
-The cause: `record_call()` un-counted a 429 but counted a 503. Both serve
-nothing. `was_refused()` now covers both, and a timeout stays counted — the
-request may have been served and only the reply lost, and an undercount walks
-the next run into a refusal, which is the worse direction to be wrong in.
+2026-09-20 ended with the ledger reading 24 on a 20-request day, and at 21:00
+the placebo batch logged "ledger says 0 requests left today (advisory)", tried
+anyway because it gates on Google's 429 and never on the ledger, and scored 2
+more cases. Read as evidence that a 503 serves nothing and therefore charges
+nothing, that produced a change to `was_refused()` and, worse, a hand-correction
+of today's count from 12 down to 6.
 
-This mattered more than it used to. The placebo batch treats the ledger as
-advisory, but `eval_budget_left()` does not — it sizes the 00:05 and 00:20 jobs
-from `remaining_today()`, so an overcount silently skips work there is room for.
-That is exactly what happened on 2026-09-21: six of the twelve requests the
-ledger recorded were 503s, and correcting it to six freed the budget for six
-more cases.
+2026-09-21 settled it the hard way. After the correction, nine further attempts
+were made and **every one was refused**: Google had the day at 20 all along.
+Six cases were thrown away to test the theory. A 503 costs one of the twenty.
 
-Two backstops keep the ledger from drifting for long: `note_daily_cap()` pins
-the day to its full quota the moment Google refuses, and the placebo batch never
-consults it at all.
+The older note in `placebo_if_due` already said it — the ledger is advisory and
+Google's 429 is the only authority — and it was right for a reason the change
+missed: a ledger that disagrees with Google is not evidence about billing, it is
+just a ledger that has drifted. The two backstops are `note_daily_cap()`, which
+pins the day the moment Google refuses, and midnight PT.
+
+Do not hand-edit `data/gemini_usage.json`. This is the second time.

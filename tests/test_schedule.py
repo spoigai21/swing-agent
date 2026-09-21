@@ -227,15 +227,15 @@ class TestRefusedRequestsAreNotCharged:
         return llm
 
     def test_a_refusal_is_recognised(self):
-        """⚠️ 503 used to be excluded here, on the reading that only a quota
-        refusal goes uncharged. 2026-09-20 disproved it: 503s pushed the ledger
-        to 24 on a 20-request day, and the 21:00 placebo batch — which ignores
-        the ledger by design — then scored 2 more cases. An overloaded model
-        serves nothing, so it charges nothing."""
+        """⚠️ 503 belongs on the NOT side. It was briefly moved across on the
+        theory that an overloaded model serves nothing and so charges nothing;
+        Google ended 2026-09-21 at the 20-request cap and refused nine further
+        attempts, which cost six cases. Only a 429 is known to be uncharged."""
         from swing.agent import llm
 
         assert llm.was_refused(RuntimeError("429 RESOURCE_EXHAUSTED ... limit: 20"))
-        assert llm.was_refused(RuntimeError("503 UNAVAILABLE high demand"))
+        assert not llm.was_refused(RuntimeError("503 UNAVAILABLE high demand")), \
+            "an overloaded model still spends one of the twenty"
         assert not llm.was_refused(TimeoutError("ReadTimeout")), \
             "the call may have been served and only the reply lost"
 

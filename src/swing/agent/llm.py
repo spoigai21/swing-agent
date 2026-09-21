@@ -132,20 +132,19 @@ def remaining_today() -> int:
 
 
 def was_refused(exc: BaseException) -> bool:
-    """The model returned nothing, so nothing was charged.
+    """A 429 RESOURCE_EXHAUSTED: the request was refused, not served.
 
-    A 429 RESOURCE_EXHAUSTED is refused before any work happens. So is a 503
-    "the model is overloaded" — and on 2026-09-20 counting those inflated the
-    ledger to 24 on a 20-request day, while the 21:00 placebo batch ignored the
-    ledger, tried anyway, and scored 2 more cases against a quota the ledger
-    swore was gone.
+    ⚠️ A 503 "the model is overloaded" DOES count against the daily allowance,
+    however wrong that feels. 2026-09-21 settled it: twelve recorded requests,
+    six of them 503s, were talked down to six on the theory that an overloaded
+    model charges nothing — and Google cut the day off at 20 after nine further
+    attempts, every one refused. Six cases were thrown away to test the theory.
 
-    ⚠️ A timeout is NOT this. The request may well have been served and only the
-    response lost, so it stays counted — an overcount there costs a case, an
-    undercount walks the next run into a refusal.
+    A timeout is counted for the same reason: the call may have been served and
+    only the reply lost. Undercounting walks the next run into a refusal.
     """
     text = f"{type(exc).__name__} {exc}"
-    return any(s in text for s in ("RESOURCE_EXHAUSTED", "429", "503", "UNAVAILABLE"))
+    return "RESOURCE_EXHAUSTED" in text or "429" in text
 
 
 # Kept: schedule and eval code still speak of a "quota rejection".
