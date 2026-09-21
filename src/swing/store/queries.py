@@ -9,6 +9,16 @@ from typing import Any
 
 from swing.store.session import connect
 
+# ⚠️ A swing can hold SEVERAL production attributions — re-running `swing why`
+# on the same day writes another row. Counting rows instead of swings then
+# double-counts: TTWO 2026-09-15 was attributed twice and appeared twice in
+# `swing unexplained`, and it also moved that ticker's unexplained RATE, which
+# is the coverage diagnostic. Always keep only the newest row per swing.
+LATEST_PRODUCTION = (
+    "a.id = (SELECT max(x.id) FROM attributions x "
+    "WHERE x.swing_id = a.swing_id AND x.run_kind = 'production')"
+)
+
 # --------------------------- articles -------------------------------------
 
 def article_counts_by_source() -> list[dict[str, Any]]:
@@ -165,6 +175,7 @@ def unexplained_rate_by_ticker(days: int = 90) -> list[dict[str, Any]]:
             FROM attributions a JOIN swings s ON s.id = a.swing_id
             WHERE a.created_at > now() - (%s::int || ' days')::interval
               AND a.run_kind = 'production'
+              AND """ + LATEST_PRODUCTION + """
             GROUP BY s.ticker ORDER BY unexplained_rate DESC NULLS LAST
             """,
             (days,),

@@ -517,3 +517,30 @@ class TestAQuietWeekendStillSpendsTheBatchShare:
         monkeypatch.setattr(llm, "remaining_today", lambda: s.INTERACTIVE_RESERVE)
         sunday = datetime(2026, 9, 20, 9, 0, tzinfo=s.ET)
         assert s.eval_budget_left(sunday) == 0
+
+
+class TestOneSwingCountsOnce:
+    """Re-running `swing why` on the same day writes a second production row.
+    TTWO 2026-09-15 had two, appeared twice in `swing unexplained`, and moved
+    that ticker's unexplained RATE — which is the coverage diagnostic, so a
+    double-counted swing reads as a source gap that is not there."""
+
+    def test_every_unexplained_read_keeps_only_the_newest_row(self):
+        import inspect
+
+        from swing import commands
+        from swing.interface import monitor, query
+        from swing.store import queries
+
+        for fn in (commands.unexplained, query._unexplained,
+                   monitor.unexplained_by_ticker, monitor.unexplained_by_swing_type,
+                   queries.unexplained_rate_by_ticker):
+            src = inspect.getsource(fn)
+            assert "LATEST_PRODUCTION" in src, f"{fn.__qualname__} counts rows, not swings"
+
+    def test_the_predicate_picks_the_highest_id_for_the_swing(self):
+        from swing.store.queries import LATEST_PRODUCTION
+
+        assert "max(x.id)" in LATEST_PRODUCTION
+        assert "x.swing_id = a.swing_id" in LATEST_PRODUCTION
+        assert "run_kind = 'production'" in LATEST_PRODUCTION

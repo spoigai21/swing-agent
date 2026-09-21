@@ -125,6 +125,7 @@ def _why(ticker: str, d: date | None) -> Answer:
 
 
 def _unexplained(ticker: str | None, days: int) -> Answer:
+    from swing.store.queries import LATEST_PRODUCTION
     from swing.store.session import connect
 
     sql = """
@@ -132,6 +133,7 @@ def _unexplained(ticker: str | None, days: int) -> Answer:
         FROM attributions a JOIN swings s ON s.id=a.swing_id
         WHERE a.verdict='unexplained' AND a.run_kind='production'
           AND s.d > current_date - %s::int
+          AND """ + LATEST_PRODUCTION + """
     """
     params: list = [days]
     if ticker:

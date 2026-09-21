@@ -370,6 +370,7 @@ def compare(tickers: list[str], days: int = 90) -> int:
 def unexplained(ticker: str | None = None, days: int = 30) -> int:
     """Unexplained swings mark gaps in source coverage — worth reviewing."""
     from swing.store import queries
+    from swing.store.queries import LATEST_PRODUCTION
     from swing.store.session import connect
 
     sql = """
@@ -377,6 +378,7 @@ def unexplained(ticker: str | None = None, days: int = 30) -> int:
         FROM attributions a JOIN swings s ON s.id = a.swing_id
         WHERE a.verdict='unexplained' AND a.run_kind='production'
           AND s.d > current_date - %s::int
+          AND """ + LATEST_PRODUCTION + """
     """
     params: list = [days]
     if ticker:

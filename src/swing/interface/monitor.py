@@ -12,6 +12,7 @@ Three things, and the third is the most useful number in the system:
 """
 from __future__ import annotations
 
+from swing.store.queries import LATEST_PRODUCTION
 from swing.store.session import connect
 
 
@@ -25,6 +26,7 @@ def unexplained_by_ticker(days: int = 90) -> list[dict]:
             FROM attributions a JOIN swings s ON s.id=a.swing_id
             WHERE a.run_kind='production'
               AND a.created_at > now() - (%s::int || ' days')::interval
+              AND """ + LATEST_PRODUCTION + """
             GROUP BY s.ticker ORDER BY rate DESC NULLS LAST
             """,
             (days,),
@@ -43,6 +45,7 @@ def unexplained_by_swing_type(days: int = 90) -> list[dict]:
             FROM attributions a JOIN swings s ON s.id=a.swing_id
             WHERE a.run_kind='production'
               AND a.created_at > now() - (%s::int || ' days')::interval
+              AND """ + LATEST_PRODUCTION + """
             GROUP BY s.swing_type ORDER BY rate DESC NULLS LAST
             """,
             (days,),
