@@ -2500,3 +2500,67 @@ printed number disagree with the sentence that follows it.
 attempt dumped the whole leftover on one term and moved it by 0.14% — a number
 that is wrong rather than merely rounded. A 1,000-case property test asserts the
 parts always sum to the headline and no part moves by more than one display step.
+
+### §16.38 The agent was grading its own homework
+
+Three self-assessments ride on every candidate. `confidence` is shown to the
+user, `direction_consistent` is trusted by `enforce_abstention` to keep a
+candidate alive, and `magnitude_plausible` is read by no code anywhere. None had
+ever been scored against the annotations.
+
+`swing calibration` scores them. It spends no quota — the answers are already
+stored — and it deliberately only MEASURES: a calibration fitted to the
+annotations would measure nothing.
+
+The first run answered a question no amount of reasoning would have:
+
+    direction_consistent   True=7   always True in 7 candidates
+    magnitude_plausible    True=7   always True in 7 candidates
+
+**The `direction_consistent` test in `enforce_abstention` has never once
+rejected a candidate.** A guard that has never fired is an assumption. It stays
+— if it is ever False the guard is right to fire — but abstention's real
+strength is the pre-move tier≤3 requirement, not this.
+
+Confidence itself is monotonic so far (high 3/3, medium 2/2), which at those
+sample sizes means nothing: the 95% interval on 3-for-3 reaches down to 0.44.
+The report prints the intervals for that reason.
+
+### §16.39 Fitting the ranking weights, and what it found
+
+`w_semantic`, `w_timing`, `w_tier`, `w_related_penalty` were hand-set and never
+fitted, next to an unused answer key and split helper. `swing fit-weights` fits
+them on the earlier swings and reports on the later ones. Every component score
+is already persisted per cluster, so a ~200-vector grid is arithmetic over
+existing rows: seconds, no model calls.
+
+At the k the gate uses, there is nothing to fit:
+
+    recall@10   train 1.000 -> 1.000   held out 1.000 -> 1.000
+
+Ranking is saturated at k=10 — which is also why Phase 5.3 was blocked. The
+signal is at k=1, the rank that decides what the user actually reads:
+
+    recall@1    train 0.231 -> 0.615   held out 0.250 -> 0.417
+                w_timing 1.0 -> 0.5,  w_related_penalty 0.5 -> 0.0
+
+Both changes say the same thing: **the catalyst is often a related company's
+news, and often not the most recent item.** That matches the NVDA case explained
+by AMD's 8-K.
+
+⚠️ Not applied. The gain is 2 of 12 held-out cases from a 192-vector search, and
+§16.25 records three verdict rules that each blessed a win finer than the
+instrument. `verdict()` now names the search width and calls a one-to-two case
+gain suggestive rather than decisive. Applying also edits thresholds.yaml, which
+changes `config_hash` and resets the Gate 4 count, so it stays a deliberate act.
+
+### §16.40 Cluster ranking uses the centroid now
+
+`semantic_relevance` scored a cluster by `members[0]` — whichever article
+happened to be canonical — so a 12-article story was judged by one of them.
+It now averages the members.
+
+Honest result: **recall did not move** (0.974 covered, 0.691 blind, unchanged).
+85% of clusters hold a single article, where the centroid IS `members[0]`. The
+change is right and costs nothing, but the earlier claim that it "should
+measurably improve ranking" was wrong.

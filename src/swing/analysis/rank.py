@@ -17,6 +17,23 @@ from swing.common.vectors import as_array
 from swing.ingest.config import thresholds
 
 
+def centroid(cluster: ClusterView) -> np.ndarray | None:
+    """Mean of the members' embeddings — what the cluster is ABOUT.
+
+    ⚠️ This used to be `members[0]` alone. A cluster is a story told by many
+    outlets, and its canonical member is whichever article happened to be
+    picked; judging a 12-article cluster by one of them throws away the other
+    eleven and makes relevance depend on an arbitrary choice. Averaging is the
+    standard summary of a set of embeddings and costs nothing at this scale.
+    """
+    vecs = [as_array(m["embedding"]) for m in cluster.members
+            if m.get("embedding") is not None]
+    vecs = [v for v in vecs if v is not None and v.size and np.linalg.norm(v) > 0]
+    if not vecs:
+        return None
+    return np.mean(np.stack(vecs), axis=0)
+
+
 def semantic_relevance(cluster: ClusterView, query_vec: np.ndarray | None) -> float:
     """Cosine against a query embedding, rescaled from [-1,1] to [0,1].
 
@@ -25,7 +42,9 @@ def semantic_relevance(cluster: ClusterView, query_vec: np.ndarray | None) -> fl
     """
     if query_vec is None:
         return 0.5
-    v = as_array(cluster.members[0]["embedding"])
+    v = centroid(cluster)
+    if v is None:
+        return 0.5
     nv, nq = np.linalg.norm(v), np.linalg.norm(query_vec)
     if nv == 0 or nq == 0:
         return 0.5

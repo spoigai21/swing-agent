@@ -125,6 +125,12 @@ def build_parser() -> argparse.ArgumentParser:
     pl = sub.add_parser("placebo", help="confabulation test (uses Gemini quota)")
     pl.add_argument("--n", type=int, default=30)
     pl.add_argument("--seed", type=int, default=0)
+    fw = sub.add_parser("fit-weights",
+                        help="fit ranking weights on a time-forward split")
+    fw.add_argument("--k", type=int, default=10,
+                    help="recall@k to optimise (default 10)")
+    sub.add_parser("calibration",
+                   help="is the agent's stated confidence worth anything")
     sub.add_parser("dbinit", help="apply the database schema (idempotent)")
 
     k = sub.add_parser("key", help="add, replace or test your Gemini API key")
@@ -178,6 +184,15 @@ def dispatch(args: argparse.Namespace) -> int:
             return commands.collect(daemon=args.daemon)
         case "health":
             return commands.health()
+        case "fit-weights":
+            from swing.models.weights import report as weights_report
+
+            print(weights_report(k=args.k))
+            return 0
+        case "calibration":
+            from swing.eval.calibration import main as calibration_main
+
+            return calibration_main()
         case "dbinit":
             return commands.dbinit()
         case "backfill":
