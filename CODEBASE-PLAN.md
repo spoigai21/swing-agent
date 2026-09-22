@@ -2621,3 +2621,37 @@ which labels were written against which corpus.
 The one swing with no match at all (450 TSLA 2026-05-11) has no admissible
 articles in its window whatsoever — a genuine coverage gap, correctly reported
 as one rather than filled with the nearest thing available.
+
+### §16.44 SEC full-text search: built, measured, removed
+
+The coverage review left a clear shape to the remaining gaps — Qualcomm's AI200
+launch, Marvell's XConn acquisition, Nvidia's GTC keynote — all company
+ANNOUNCEMENTS. EDGAR full-text search covers filings and their EX-99 press
+releases, free, keyless, back to 2001, so it looked like the obvious fix. It was
+built, run for 12 months across the watchlist, and then deleted. Two reasons,
+both measured:
+
+**1. It cannot find the case that motivated it.** The NVDA move of 2025-10-06
+was explained by AMD's 8-K. Searching `"Nvidia"` over 1-10 Oct 2025 does not
+return that filing, because AMD's own press release never names its competitor.
+Searching `"OpenAI"` finds it immediately — but the linking entity is exactly
+what is unknown before the answer is known. The AMD filing was already in the
+corpus anyway: AMD is in NVDA's related-companies list, so `edgar.poll` fetches
+it by CIK.
+
+**2. Name search is 90% micro-cap boilerplate.** 365 filings harvested; the top
+filers were Eco Wave Power, SharonAI, Bitdeer, Beamr Imaging — companies whose
+filings mention a watchlist name in passing. Only ~10% were filed by a company
+we track, and those duplicate the CIK poller.
+
+⚠️ And the harvest was written with `source_tier: 1`, because SEC filings are the
+most credible source there is — which is true of the filing and false of its
+relevance. Eco Wave Power boilerplate would have entered retrieval ranked above
+Bloomberg. Nothing reached a cluster before it was deleted (365 raw, 365
+normalized, 0 cluster members), but the near-miss is the lesson: **provenance
+credibility is not evidence relevance, and a tier is a claim about both.**
+
+What the negative result leaves standing: the remaining coverage gaps are
+company announcements that never became filings at all. A product launch is a
+press release, not an 8-K. Closing that gap needs a newswire, which is the paid
+door §16.13 already identified.
