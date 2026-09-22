@@ -129,6 +129,8 @@ def build_parser() -> argparse.ArgumentParser:
                         help="fit ranking weights on a time-forward split")
     fw.add_argument("--k", type=int, default=10,
                     help="recall@k to optimise (default 10)")
+    sub.add_parser("source-precision",
+                   help="which sources actually explain moves, measured")
     sub.add_parser("calibration",
                    help="is the agent's stated confidence worth anything")
     sub.add_parser("dbinit", help="apply the database schema (idempotent)")
@@ -189,6 +191,10 @@ def dispatch(args: argparse.Namespace) -> int:
 
             print(weights_report(k=args.k))
             return 0
+        case "source-precision":
+            from swing.eval.sources import main as sources_main
+
+            return sources_main()
         case "calibration":
             from swing.eval.calibration import main as calibration_main
 

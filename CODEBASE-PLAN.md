@@ -2564,3 +2564,35 @@ Honest result: **recall did not move** (0.974 covered, 0.691 blind, unchanged).
 85% of clusters hold a single article, where the centroid IS `members[0]`. The
 change is right and costs nothing, but the earlier claim that it "should
 measurably improve ranking" was wrong.
+
+### §16.41 Source precision, and why it must not close the loop
+
+`swing source-precision` counts, per source, how often evidence it supplied was
+part of a catalyst a human later confirmed. It is the only signal in the system
+that compounds without new labels: the corpus grows, the estimate sharpens.
+
+Today it is 9 citations over 5 sources, none at the 10 needed to judge one, so
+the table prints "too few to judge" against every row rather than letting a
+3-for-3 at the top read as authority.
+
+⚠️ It reports and never writes. Tiers drive ranking, ranking drives which
+sources get cited, and citations drive this number — rewriting sources.yaml from
+it would be a closed loop that launders its own priors into the config every
+future measurement depends on.
+
+### §16.42 A year of GDELT did not move coverage, and could not have
+
+`swing backfill-events --months 12` pulled 12/12 months for 72 GB scanned and
+added 2,742 wire articles (GDELT corpus 3,840 -> 6,595; articles 25,127 ->
+27,945). Coverage stayed at 0.709. Recall stayed at 0.974 / 0.691.
+
+That is not a failed backfill. `catalyst_coverage` counts annotation rows whose
+`true_article_ids` is non-empty, and that column was filled in when a human
+annotated. **New articles cannot change a field written months ago**, so the
+metric is frozen no matter how much the corpus grows.
+
+The 16 uncovered swings may well have their catalyst in the corpus now. Nothing
+will show it until each is re-checked against the enlarged archive and the
+matching articles linked. Until then, backfilling improves the product's real
+answers while leaving its headline number untouched — worth knowing before
+anyone reads a flat metric as a flat result.
