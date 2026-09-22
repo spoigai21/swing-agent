@@ -129,6 +129,11 @@ def build_parser() -> argparse.ArgumentParser:
                         help="fit ranking weights on a time-forward split")
     fw.add_argument("--k", type=int, default=10,
                     help="recall@k to optimise (default 10)")
+    rc = sub.add_parser("recheck-coverage",
+                        help="re-check uncovered labels against the grown corpus")
+    rc.add_argument("--link", help="<swing_id>=<article_id>[,<id>...] after you have "
+                                   "read and confirmed the article")
+    rc.add_argument("--min-similarity", type=float, default=0.35)
     sub.add_parser("source-precision",
                    help="which sources actually explain moves, measured")
     sub.add_parser("calibration",
@@ -191,6 +196,10 @@ def dispatch(args: argparse.Namespace) -> int:
 
             print(weights_report(k=args.k))
             return 0
+        case "recheck-coverage":
+            from swing.eval.recheck import main as recheck_main
+
+            return recheck_main(args.link, args.min_similarity)
         case "source-precision":
             from swing.eval.sources import main as sources_main
 

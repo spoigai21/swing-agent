@@ -2596,3 +2596,28 @@ will show it until each is re-checked against the enlarged archive and the
 matching articles linked. Until then, backfilling improves the product's real
 answers while leaving its headline number untouched — worth knowing before
 anyone reads a flat metric as a flat result.
+
+### §16.43 `swing recheck-coverage` — letting coverage see new data
+
+§16.42 established that `catalyst_coverage` cannot respond to a backfill: it
+reads `true_article_ids`, written when a human annotated, so 2,742 new articles
+moved it by zero. The annotator's free-text `true_catalyst` is the way back in —
+it describes the cause in their own words even when no article for it existed at
+the time, which makes it a query against today's corpus.
+
+For each uncovered label this embeds that sentence, scores it against the same
+pre-move window retrieval would use, and prints the best matches for review.
+**15 of the 16 uncovered swings now have at least one plausible match**, which
+is what the backfill bought and what the metric could not show.
+
+⚠️ It never links anything itself, and that is the whole design. These rows are
+the held-out answer key; auto-linking on similarity would let the retrieval
+stack choose its own ground truth — the article it ranks highest becomes the
+article it is scored against, and coverage rises by construction. The `link`
+path takes explicit ids, refuses ids that do not exist, refuses to overwrite a
+label that already has articles, and stamps the note so a later reader can tell
+which labels were written against which corpus.
+
+The one swing with no match at all (450 TSLA 2026-05-11) has no admissible
+articles in its window whatsoever — a genuine coverage gap, correctly reported
+as one rather than filled with the nearest thing available.
