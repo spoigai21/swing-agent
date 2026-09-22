@@ -398,16 +398,67 @@ def _sector(sector_etf: str | None) -> str | None:
     return SECTOR_LABELS.get(sector_etf, sector_etf) if sector_etf else None
 
 
+def balanced_pcts(values: list[float], total: float) -> list[float]:
+    """Round to 0.1% so the parts still sum to the displayed total.
+
+    ⚠️ Rounding each part on its own is what makes a correct answer look wrong:
+    four terms can each be off by 0.05 and miss the rounded total by 0.2, and a
+    tool whose pitch is "check my arithmetic" cannot print a split that does not
+    add up.
+
+    Largest-remainder allocation, in integer tenths of a percent: every part is
+    rounded DOWN, then the leftover tenths go one at a time to the parts with
+    the biggest fractions. A naive "dump the whole leftover on one part" was the
+    first attempt and moved a term by 0.14% — more than a display step, i.e. a
+    number that is simply wrong rather than merely rounded.
+    """
+    import math
+
+    target = round(total * 1000)                 # tenths of a percent
+    floors = [math.floor(v * 1000) for v in values]
+    rema = [v * 1000 - f for v, f in zip(values, floors)]
+    leftover = target - sum(floors)
+    order = sorted(range(len(values)), key=lambda i: rema[i], reverse=leftover > 0)
+    for k in range(min(abs(leftover), len(values))):
+        floors[order[k]] += 1 if leftover > 0 else -1
+    return [f / 10 for f in floors]
+
+
+def split_terms(dec, sector_etf: str | None) -> list[tuple[str, float]]:
+    """Every term of the decomposition, including the one that used to be hidden.
+
+    total = drift + market + sector + residual. The regression intercept — the
+    stock's average daily drift over the fit window — was never displayed, so
+    NFLX on 2026-09-21 printed "market +0.4% · comm stocks +3.2% · NFLX on its
+    own -1.1%" for a +2.2% day: right to four decimal places, and visibly wrong
+    to anyone adding it up.
+
+    It stays a separate term rather than being folded into the stock's own part,
+    because the residual alone is what `residual_z` and swing detection are
+    computed from. Folding it in would make the printed number disagree with the
+    number the rest of the sentence is about.
+    """
+    drift = (dec.total_return - dec.market_component
+             - dec.sector_component - dec.residual)
+    terms = [("market", dec.market_component)]
+    if sector_etf:
+        terms.append((_sector(sector_etf), dec.sector_component))
+    # Below 0.05% it rounds to +0.0% and the other terms already add up.
+    if abs(round(drift * 100, 1)) >= 0.1:
+        terms.append(("its usual drift", drift))
+    terms.append((f"{dec.ticker} on its own", dec.residual))
+    return terms
+
+
 def header(dec, sector_etf: str | None) -> str:
     if abs(dec.total_return) < 0.0005:
         move = f"{dec.ticker} was flat on {_day(dec.d)}."
     else:
         verb = "rose" if dec.total_return > 0 else "fell"
         move = f"{dec.ticker} {verb} {abs(dec.total_return) * 100:.1f}% on {_day(dec.d)}."
-    parts = [f"market {_pct(dec.market_component)}"]
-    if sector_etf:
-        parts.append(f"{_sector(sector_etf)} {_pct(dec.sector_component)}")
-    parts.append(f"{dec.ticker} on its own {_pct(dec.residual)}")
+    terms = split_terms(dec, sector_etf)
+    shown = balanced_pcts([v for _, v in terms], dec.total_return)
+    parts = [f"{label} {v:+.1f}%" for (label, _), v in zip(terms, shown)]
     return f"{move}\n  Split: {' · '.join(parts)}"
 
 

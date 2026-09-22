@@ -2476,3 +2476,27 @@ stop costs at most one month's scan. A failed month is logged and skipped rather
 than ending the walk. It normalizes at the end, because rows left in
 `articles_raw` are invisible to retrieval and a backfill that "worked" would
 otherwise leave every swing unexplained.
+
+### §16.37 A split that does not add up
+
+`swing why NFLX --date 2026-09-21` printed, for a +2.2% day:
+
+    Split: market +0.4% · communication stocks +3.2% · NFLX on its own -1.1%
+
+Every number was right to four decimals; the visible terms summed to +3.6%.
+The decomposition is `total = alpha + market + sector + residual`, and the
+regression intercept — the stock's average daily drift over the fit window —
+was never displayed. For a tool whose pitch is "check my arithmetic", a split
+that does not add up is a correctness bug in the output.
+
+The drift term is now shown when it rounds to at least 0.1%, derived in the
+renderer as `total - market - sector - residual`, so neither the schema nor the
+loader changed. It is NOT folded into the stock's own part: `residual_z` and
+swing detection are computed from the residual alone, and folding would make the
+printed number disagree with the sentence that follows it.
+
+⚠️ Rounding four terms independently misses the total by up to 0.2, so
+`balanced_pcts` allocates by largest remainder in integer tenths. The first
+attempt dumped the whole leftover on one term and moved it by 0.14% — a number
+that is wrong rather than merely rounded. A 1,000-case property test asserts the
+parts always sum to the headline and no part moves by more than one display step.
