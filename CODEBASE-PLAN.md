@@ -2981,3 +2981,32 @@ tier in sources.yaml so nobody has to re-run the experiment to know why.
 
 ⚠️ Deleting the demoted articles fails: `clusters.canonical_article` references
 them. Demote in place and rebuild; retrieval filters on tier.
+
+### §16.58 Free per-ticker RSS: tested, nothing worth adding
+
+Asked whether Robinhood-style article coverage could be bought for free. Probed
+on 2026-09-23:
+
+    yahoo per-ticker RSS      HTTP 200, 19 items — but NO publisher attribution
+    seekingalpha per-ticker   HTTP 200, 30 items — already a tier-4 feed here
+    nasdaq rssoutbound        HTTP 000, dead
+    apnews business RSS       HTTP 000, dead
+    bloomberg RSS             HTTP 301, no public feed
+    ft.com companies RSS      HTTP 200, 1 item
+
+Yahoo's per-ticker feed is the interesting one and it fails on the point that
+matters: entries carry no `source`, just Yahoo and fool.com links, so every item
+normalises to tier 4. §16.57 measured what adding aggregator volume at a citable
+tier does to ranking — it makes it worse. Adding these would cost storage and
+buy nothing citable.
+
+Also checked in passing: all six configured WSJ and MarketWatch feeds return
+HTTP 200 with content, so the missing wire coverage is not a broken URL. Reuters,
+Bloomberg, Barron's, FT and AP simply have no usable free feed, and GDELT
+dropped them (§16.56). **bnnbloomberg.ca is the only recovery available**, and it
+is now configured.
+
+Robinhood itself is not an option: its in-app news is licensed from Benzinga,
+Dow Jones and others through an authenticated app API, so reading it would mean
+using account credentials against their terms. The publishers behind it are
+already here — Benzinga included, and measured at §16.57.
