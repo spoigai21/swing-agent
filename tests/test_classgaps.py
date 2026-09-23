@@ -15,6 +15,24 @@ from datetime import date
 from swing.eval import classgaps as G
 
 
+def _fake_connect(counts: dict):
+    """A connect() that answers the label-count query and nothing else."""
+    import contextlib
+
+    class Conn:
+        def execute(self, *a, **k):
+            return self
+
+        def fetchall(self):
+            return [{"t": t, "n": n} for t, n in counts.items()]
+
+    @contextlib.contextmanager
+    def connect(*a, **k):
+        yield Conn()
+
+    return connect
+
+
 def row(sid, headlines, ticker="NVDA", z=-2.5, d=date(2026, 5, 1)):
     return {"id": sid, "ticker": ticker, "d": d, "residual_z": z,
             "headlines": headlines}
@@ -95,6 +113,9 @@ class TestCounts:
     def test_every_event_type_appears_even_at_zero(self, monkeypatch):
         """A class missing from the table is the one you need to see."""
         from swing.eval.annotate import EVENT_TYPES
+        from swing.store import session
 
+        monkeypatch.setattr(session, "connect", _fake_connect({"earnings": 16}))
         counts = G.label_counts()
         assert set(counts) == set(EVENT_TYPES)
+        assert counts["regulatory"] == 0 and counts["earnings"] == 16

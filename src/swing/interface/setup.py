@@ -12,6 +12,7 @@ launches background daemons is worse than one that does not.
 """
 from __future__ import annotations
 
+import os
 import shutil
 import stat
 from pathlib import Path
@@ -236,8 +237,13 @@ def run(home: Path | None = None, *, force: bool = False,
         for key, blurb, default, required in PROMPTS:
             values[key] = _ask(key, blurb, default, required, values.get(key, ""))
     else:
+        # ⚠️ The ENVIRONMENT comes first in non-interactive mode. Reading only
+        # the .env file made `swing init --non-interactive` unusable from CI, a
+        # Dockerfile or any provisioning script: the values were exported and
+        # ignored, and setup failed asking for a contact it had been given.
         for key, _, default, _required in PROMPTS:
-            values.setdefault(key, default)
+            if not values.get(key):
+                values[key] = os.environ.get(key, "") or default
 
     write_env(env_path, values)
     print(f"\n  env     {env_path} (permissions 0600)")

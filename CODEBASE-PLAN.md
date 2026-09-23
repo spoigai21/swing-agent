@@ -2870,3 +2870,21 @@ every runtime data file is present inside the package. That job fails on the
 
 Also added: a weekly schedule, so a dependency that breaks on its own is found
 before a release rather than during one.
+
+### §16.53 The new CI immediately found two real faults
+
+The three-job workflow failed on its first run, which is the point of it.
+
+**`swing init --non-interactive` ignored the environment.** It read only the
+.env file and its hardcoded defaults, so with SEC_USER_AGENT and DATABASE_URL
+exported it still stopped with "SEC_USER_AGENT needs an email address in it" —
+failing while asking for what it had been given. That makes it unusable from CI,
+a Dockerfile, or any provisioning script. The environment now seeds each value
+when the .env has nothing, and an existing .env still wins so a re-run never
+overwrites a working setup.
+
+**Two unit tests quietly needed a database.** `classgaps.label_counts` and
+`sources.report` were called for real; they passed locally only because Postgres
+happened to be up, and failed in CI against the unreachable DATABASE_URL. Both
+are stubbed now. The rule stands: a test that needs SQL is marked `db` and runs
+in the `sql` job, never by accident in the fast one.

@@ -66,8 +66,9 @@ class TestItRefusesToCloseTheLoop:
         for forbidden in ("write_text", "yaml.dump", "INSERT", "UPDATE", "DELETE"):
             assert forbidden not in src
 
-    def test_the_report_states_why(self):
-        assert "feedback loop" in S.report() or "No cited-and-annotated" in S.report()
+    def test_the_report_states_why(self, monkeypatch):
+        monkeypatch.setattr(S, "collect", lambda: [stat("cnbc", 3, 12, 9)])
+        assert "feedback loop" in S.report()
 
     def test_an_empty_corpus_reports_instead_of_dividing_by_zero(self, monkeypatch):
         monkeypatch.setattr(S, "collect", list)

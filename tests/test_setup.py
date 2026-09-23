@@ -353,3 +353,33 @@ class TestTheDefaultInstallRunsEveryUserCommand:
                        "langgraph", "langchain-google-genai",
                        "sentence-transformers", "datasketch"):
             assert needed in base, f"{needed} is imported by a user command"
+
+
+class TestNonInteractiveInitReadsTheEnvironment:
+    """`swing init --non-interactive` read only the .env file, so CI, a
+    Dockerfile or any provisioning script got "SEC_USER_AGENT needs an email"
+    while having exported exactly that. It failed asking for what it was given.
+    """
+
+    def test_exported_values_are_used(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("SEC_USER_AGENT", "CI Bot (ci@example.com)")
+        monkeypatch.setenv("GEMINI_API_KEY", "AIzaFROMENV0001")
+        setup.run(tmp_path / "home", interactive=False)
+        env = setup.read_env(tmp_path / "home" / ".env")
+        assert env["SEC_USER_AGENT"] == "CI Bot (ci@example.com)"
+        assert env["GEMINI_API_KEY"] == "AIzaFROMENV0001"
+
+    def test_an_existing_env_file_still_wins(self, tmp_path, monkeypatch):
+        """Re-running must not overwrite what the user already configured."""
+        home = tmp_path / "home"
+        home.mkdir()
+        setup.write_env(home / ".env", {"SEC_USER_AGENT": "Real User (me@example.com)"})
+        monkeypatch.setenv("SEC_USER_AGENT", "CI Bot (ci@example.com)")
+        setup.run(home, interactive=False)
+        assert setup.read_env(home / ".env")["SEC_USER_AGENT"] == "Real User (me@example.com)"
+
+    def test_the_default_still_applies_when_nothing_is_set(self, tmp_path, monkeypatch):
+        monkeypatch.delenv("DATABASE_URL", raising=False)
+        setup.run(tmp_path / "home", interactive=False)
+        env = setup.read_env(tmp_path / "home" / ".env")
+        assert env["DATABASE_URL"] == setup.DEFAULT_DATABASE_URL
