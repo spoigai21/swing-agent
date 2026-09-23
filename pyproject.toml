@@ -86,7 +86,10 @@ swing = [
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-pythonpath = ["src"]
+pythonpath = ["src", "."]
+# `db` tests execute real SQL and need SWING_TEST_DATABASE_URL; they skip
+# otherwise, so the default run stays fast and needs no Postgres.
+markers = ["db: runs real SQL against a *_test Postgres"]
 
 [tool.ruff]
 line-length = 100

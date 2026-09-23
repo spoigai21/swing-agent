@@ -5,33 +5,124 @@ on:
     branches: [main]
   pull_request:
   workflow_dispatch:
+  schedule:
+    # Weekly, so a dependency that breaks on its own is found before a release
+    # rather than during one.
+    - cron: "0 7 * * 1"
 
 concurrency:
   group: test-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  test:
+  # Fast gate: lint plus every test that needs no database. Runs in about a
+  # minute because the suite is green against an unreachable DATABASE_URL.
+  unit:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
       - uses: astral-sh/setup-uv@v5
         with:
           enable-cache: true
-
-      # No database service. The suite runs green against an unreachable
-      # DATABASE_URL — every test that would touch Postgres stubs the
-      # connection — so CI stays under a minute. If that ever stops being
-      # true, add a `pgvector/pgvector:pg16` service rather than skipping.
       - name: install
         run: uv sync --extra dev
-
       - name: lint
         run: uv run ruff check src tests
-
       - name: test
         env:
           DATABASE_URL: postgresql://unused:unused@127.0.0.1:1/unused
           SEC_USER_AGENT: swing-agent CI (ci@example.com)
         run: uv run pytest -q
+
+  # src/ holds 151 SQL statements and the unit job executes none of them, so a
+  # wrong column name used to ship silently — `clusters.size` and `swings.day`
+  # both did. This runs the real queries against a real schema.
+  sql:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: swing
+          POSTGRES_PASSWORD: swing
+          POSTGRES_DB: swing_agent_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U swing -d swing_agent_test"
+          --health-interval 5s --health-timeout 5s --health-retries 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - name: install
+        run: uv sync --extra dev
+      - name: run the queries against Postgres
+        env:
+          DATABASE_URL: postgresql://swing:swing@localhost:5432/swing_agent_test
+          SWING_TEST_DATABASE_URL: postgresql://swing:swing@localhost:5432/swing_agent_test
+          SEC_USER_AGENT: swing-agent CI (ci@example.com)
+        run: uv run pytest -q -m db
+
+  # 0.1.0 published, installed, and then died on every command but --help: the
+  # config, schema.sql and the hashed placebo source all lived outside the
+  # wheel. It passed testing because `uvx` resolved to the local checkout.
+  # This installs the built wheel into a clean environment with no repo.
+  package:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: swing
+          POSTGRES_PASSWORD: swing
+          POSTGRES_DB: swing_agent_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U swing -d swing_agent_test"
+          --health-interval 5s --health-timeout 5s --health-retries 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - name: build the wheel
+        run: uv build --wheel --out-dir dist
+      - name: install it somewhere with no source tree
+        run: |
+          mkdir -p "$RUNNER_TEMP/clean" && cd "$RUNNER_TEMP/clean"
+          uv venv --python 3.12 .venv
+          uv pip install --python .venv/bin/python "$GITHUB_WORKSPACE"/dist/*.whl
+      - name: first-time setup, exactly as a new user runs it
+        env:
+          SEC_USER_AGENT: swing-agent CI (ci@example.com)
+          DATABASE_URL: postgresql://swing:swing@localhost:5432/swing_agent_test
+        run: |
+          cd "$RUNNER_TEMP/clean"
+          # No SWING_HOME and no repo: the package must find its own config.
+          env -u SWING_HOME .venv/bin/swing init --home "$PWD/home" --non-interactive
+          test -f "$PWD/home/config/watchlist.yaml"
+      - name: commands a new user would actually type
+        env:
+          SEC_USER_AGENT: swing-agent CI (ci@example.com)
+          DATABASE_URL: postgresql://swing:swing@localhost:5432/swing_agent_test
+        run: |
+          cd "$RUNNER_TEMP/clean"
+          export SWING_HOME="$PWD/home"
+          .venv/bin/swing coverage
+          .venv/bin/swing health
+          .venv/bin/swing metrics
+          .venv/bin/swing uptime --days 2
+          .venv/bin/swing calibration
+          .venv/bin/swing label-gaps --limit 1
+      - name: the package must carry its own data files
+        run: |
+          cd "$RUNNER_TEMP/clean"
+          .venv/bin/python - <<'PY'
+          from pathlib import Path
+          import swing
+          pkg = Path(swing.__file__).parent
+          for rel in ("defaults/watchlist.yaml", "defaults/sources.yaml",
+                      "defaults/thresholds.yaml", "store/schema.sql",
+                      "eval/placebo.py"):
+              assert (pkg / rel).is_file(), f"{rel} is missing from the wheel"
+          print("all runtime data files present")
+          PY

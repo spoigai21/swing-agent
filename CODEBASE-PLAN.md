@@ -2845,3 +2845,28 @@ stopword evidence either way.
 
 After the rebuild GOOGL's evidence leads with Google's own product posts, and
 recall held at 0.977 covered / 0.764 blind.
+
+### §16.52 CI tested the code, not the product
+
+Two gaps, both of which had already caused real failures.
+
+**151 SQL statements, none executed.** The suite is green against an
+unreachable DATABASE_URL because everything touching Postgres is stubbed, so a
+wrong column name shipped silently — `clusters.size` (the column is
+`member_count`) and `swings.day` (it is `d`) both did, each found by a human
+running a command. `tests/test_sql_executes.py` seeds one row per table and
+calls the real functions, so the SQL is exercised even where the result is an
+empty list. Verified to have teeth: reintroducing `clusters.size` fails it.
+
+⚠️ Guarded by `SWING_TEST_DATABASE_URL`, which must name a database ending
+`_test`, and skipped otherwise. These tests TRUNCATE; pointed at the working
+corpus they would destroy months of collection that cannot be repeated.
+
+**The published package was never installed.** 0.1.0's disaster (§16.35) is now
+a CI job: build the wheel, install it into a clean venv with no source tree and
+no SWING_HOME, run `swing init` and the commands a new user types, then assert
+every runtime data file is present inside the package. That job fails on the
+0.1.0 tree.
+
+Also added: a weekly schedule, so a dependency that breaks on its own is found
+before a release rather than during one.
