@@ -225,13 +225,14 @@ def retrieve(swing_id: int | None = None, limit: int | None = None) -> int:
 
 
 def annotate(blind: bool = False, ticker: str | None = None, limit: int = 10,
-             show_progress: bool = False) -> int:
-    from swing.eval.annotate import _candidates, annotate_one, progress
+             show_progress: bool = False, swing_id: int | None = None,
+             since: str | None = None) -> int:
+    from swing.eval.annotate import _candidates, _one_swing, annotate_one, progress
 
     if show_progress:
         progress()
         return 0
-    rows = _candidates(blind, ticker, limit)
+    rows = _one_swing(swing_id) if swing_id else _candidates(blind, ticker, limit, since)
     if not rows:
         print("nothing left to annotate matching that filter")
         return 0

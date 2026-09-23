@@ -104,6 +104,8 @@ def build_parser() -> argparse.ArgumentParser:
     an.add_argument("--ticker")
     an.add_argument("--limit", type=int, default=10)
     an.add_argument("--progress", action="store_true")
+    an.add_argument("--swing", type=int, help="annotate this swing id specifically")
+    an.add_argument("--since", help="only swings on or after this date (YYYY-MM-DD)")
 
     sub.add_parser("metrics", help="the seven evaluation metrics")
 
@@ -229,7 +231,8 @@ def dispatch(args: argparse.Namespace) -> int:
         case "retrieve":
             return commands.retrieve(args.swing, args.limit)
         case "annotate":
-            return commands.annotate(args.blind, args.ticker, args.limit, args.progress)
+            return commands.annotate(args.blind, args.ticker, args.limit,
+                                     args.progress, args.swing, args.since)
         case "metrics":
             return commands.metrics()
         case "alert":

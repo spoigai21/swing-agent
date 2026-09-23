@@ -26,8 +26,42 @@ from swing.store.session import connect
 EVENT_TYPES = ["earnings", "guidance", "analyst_action", "m_and_a", "regulatory",
                "litigation", "product", "macro", "management", "other"]
 
+#: Sources that state what a company or an analyst SAID, as opposed to what a
+#: journalist concluded. Safe to show a blind annotator: agent-plan 4.1 tells
+#: them to check primary sources, and none of these is our ranked cluster list.
+#: ⚠️ Journalism (bloomberg, cnbc, marketwatch…) is deliberately absent. Reading
+#: the day's coverage is encouraged — but they should go find it themselves, or
+#: the blind set stops measuring what our corpus missed.
+PRIMARY_SOURCES = ("sec-edgar", "analyst-ratings", "prnewswire", "businesswire")
 
-def _candidates(blind: bool, ticker: str | None, limit: int) -> list[dict]:
+#: 8-K Item numbers are free event labels. Offered as a DEFAULT, never applied
+#: silently — the annotator can overrule it with one keystroke.
+ITEM_EVENT_TYPE = {
+    "1.01": "m_and_a", "1.02": "m_and_a", "2.01": "m_and_a",
+    "2.02": "earnings", "2.05": "management", "2.06": "other",
+    "3.02": "other", "5.02": "management", "5.03": "other",
+    "7.01": "other", "8.01": "other",
+}
+
+
+def event_type_hint(items: str | None) -> str | None:
+    """The event type an 8-K's Item numbers imply, if any."""
+    if not items:
+        return None
+    for item in (i.strip() for i in items.split(",")):
+        if item in ITEM_EVENT_TYPE:
+            return ITEM_EVENT_TYPE[item]
+    return None
+
+
+def _one_swing(swing_id: int) -> list[dict]:
+    with connect() as conn:
+        row = conn.execute("SELECT * FROM swings WHERE id=%s", (swing_id,)).fetchone()
+    return [row] if row else []
+
+
+def _candidates(blind: bool, ticker: str | None, limit: int,
+                since: str | None = None) -> list[dict]:
     """Swings not yet annotated, biggest |z| first.
 
     Blind mode prefers swings that actually have retrievable coverage,
@@ -45,6 +79,12 @@ def _candidates(blind: bool, ticker: str | None, limit: int) -> list[dict]:
     if ticker:
         sql += " AND s.ticker = %s"
         params.append(ticker.upper())
+    if since:
+        # Labels from the period the collector was actually running are the ones
+        # that say what the product does now, rather than what it could not have
+        # known before it existed.
+        sql += " AND s.d >= %s::date"
+        params.append(since)
     # Blind cases are researched by hand, so offer the ones a human can actually
     # verify: single names (a sector move needs the whole industry checked),
     # with real coverage, biggest moves first.
@@ -93,16 +133,23 @@ def _research_pane(swing: dict) -> None:
     # A sector ETF files nothing itself; its constituents do.
     filing_tickers = own_tickers(dict(swing))
     with connect() as conn:
+        # ⚠️ Was: source='sec-edgar' AND raw->>'ticker' = ANY(...). That missed
+        # every IR press release, every analyst action and every newswire
+        # release we hold — for AVGO 2025-11-24 it showed 0 items while the
+        # corpus held primary sources for the window. A blind annotator who
+        # cannot see what we have spends minutes rediscovering it.
         filings = conn.execute(
             """
-            SELECT published_at, headline, url, raw->>'items' AS items,
-                   raw->>'form' AS form, raw->>'ticker' AS tkr
-            FROM articles_raw
-            WHERE source='sec-edgar' AND raw->>'ticker' = ANY(%s)
-              AND published_at::date BETWEEN %s AND %s
-            ORDER BY published_at
+            SELECT a.published_at, a.headline, a.url, a.source,
+                   r.raw->>'items' AS items, r.raw->>'form' AS form
+            FROM articles a LEFT JOIN articles_raw r ON r.id = a.raw_id
+            WHERE (a.source = ANY(%s) OR a.source LIKE %s)
+              AND a.tickers && %s
+              AND a.published_at::date BETWEEN %s AND %s
+            ORDER BY a.published_at
             """,
-            (filing_tickers, d - timedelta(days=4), d + timedelta(days=1)),
+            (list(PRIMARY_SOURCES), "%-ir", filing_tickers,
+             d - timedelta(days=4), d + timedelta(days=1)),
         ).fetchall()
         bars = conn.execute(
             """
@@ -120,18 +167,44 @@ def _research_pane(swing: dict) -> None:
             chg = (float(b["close"]) / float(b["open"]) - 1) * 100
             print(f"    {b['d']}  open {float(b['open']):>9.2f}  close {float(b['close']):>9.2f}"
                   f"  ({chg:+.1f}%)  vol {b['volume']:>13,}{mark}")
-    print(f"\n  SEC filings, {d - timedelta(days=4)} .. {d + timedelta(days=1)} "
-          f"(ALL of them, unranked):")
+    print(f"\n  PRIMARY SOURCES, {d - timedelta(days=4)} .. {d + timedelta(days=1)} "
+          f"(filings, IR releases, analyst actions — ALL of them, unranked):")
     if not filings:
-        print("    (none)")
+        print("    (none — nothing the company or an analyst said is in the corpus)")
     for f in filings:
         item = f" Item {f['items']}" if f["items"] else ""
-        print(f"    [{f['published_at']:%m-%d %H:%M}Z] {f['form']}{item}")
+        label = f["form"] or f["source"]
+        hint = event_type_hint(f["items"])
+        suffix = f"   [looks like: {hint}]" if hint else ""
+        print(f"    [{f['published_at']:%m-%d %H:%M}Z] {label}{item}{suffix}")
+        print(f"        {f['headline'][:88]}")
         print(f"        {f['url']}")
     print("\n  suggested searches:")
     print(f"    \"{ticker}\" stock {d}")
     print(f"    {ticker} news {d.strftime('%B %d, %Y')}")
     print("  ---------------------------------------------")
+
+
+def _suggested_event_type(swing: dict) -> str | None:
+    """Best guess from any 8-K filed by the company in the pre-move window."""
+    from datetime import timedelta
+
+    from swing.analysis.retrieval import own_tickers
+
+    with connect() as conn:
+        rows = conn.execute(
+            """
+            SELECT raw->>'items' AS items FROM articles_raw
+            WHERE source='sec-edgar' AND raw->>'ticker' = ANY(%s)
+              AND published_at::date BETWEEN %s AND %s
+            ORDER BY published_at DESC
+            """,
+            (own_tickers(dict(swing)), swing["d"] - timedelta(days=2), swing["d"]),
+        ).fetchall()
+    for r in rows:
+        if hint := event_type_hint(r["items"]):
+            return hint
+    return None
 
 
 def _show_clusters(swing_id: int) -> list[dict]:
@@ -207,7 +280,8 @@ def annotate_one(s: dict, blind: bool) -> bool:
         no_cat = not catalyst
         etype = ""
         if not no_cat:
-            etype = _prompt(f"  Event type {EVENT_TYPES}: ", "other")
+            suggested = _suggested_event_type(s) or "other"
+            etype = _prompt(f"  Event type {EVENT_TYPES}\n    [{suggested}]: ", suggested)
         note = _prompt("  Note (optional): ")
         rows = _show_clusters(s["id"])          # revealed only now
         cid = None
@@ -230,7 +304,9 @@ def annotate_one(s: dict, blind: bool) -> bool:
             if row:
                 cid, no_cat = row["id"], False
                 catalyst = row["headline"]
-                etype = _prompt(f"  Event type {EVENT_TYPES}: ", "other")
+                suggested = _suggested_event_type(s) or "other"
+                etype = _prompt(f"  Event type {EVENT_TYPES}\n    [{suggested}]: ",
+                                suggested)
         note = _prompt("  Note (optional): ")
         _save(s["id"], False, catalyst, cid, etype or None, no_cat, note)
     print("  saved.")
@@ -258,13 +334,18 @@ def main() -> int:
     ap.add_argument("--ticker")
     ap.add_argument("--limit", type=int, default=10)
     ap.add_argument("--progress", action="store_true")
+    ap.add_argument("--swing", type=int,
+                    help="annotate this swing id specifically (re-labels if needed)")
+    ap.add_argument("--since",
+                    help="only swings on or after this date, e.g. 2026-08-01")
     a = ap.parse_args()
 
     if a.progress:
         progress()
         return 0
 
-    rows = _candidates(a.blind, a.ticker, a.limit)
+    rows = (_one_swing(a.swing) if a.swing
+            else _candidates(a.blind, a.ticker, a.limit, a.since))
     if not rows:
         print("nothing left to annotate matching that filter")
         return 0

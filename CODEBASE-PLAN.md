@@ -2655,3 +2655,29 @@ What the negative result leaves standing: the remaining coverage gaps are
 company announcements that never became filings at all. A product launch is a
 press release, not an 8-K. Closing that gap needs a newswire, which is the paid
 door §16.13 already identified.
+
+### §16.45 The annotation accelerator
+
+Every open question is blocked on the same shortage: attribution accuracy n=5,
+abstention n=7, the ranking-weight effect worth 2 of 13 held-out cases, live-era
+coverage n=4. All four resolve with more labels, and labelling spends no quota —
+only time. So the research pane is the thing worth making faster.
+
+It was showing **50 primary sources across 68 blind swings**. The corpus held
+**436**. The query filtered `source='sec-edgar' AND raw->>'ticker' = ANY(...)`,
+which excluded every IR press release, every analyst action and every newswire
+release we hold; for AVGO 2025-11-24 it printed nothing at all. 53 of 68 swings
+now show the annotator more, with headlines and URLs rather than a bare form
+number, and 8-K Item numbers offer a default event type.
+
+⚠️ The blindness constraint is unchanged and deliberately so. `PRIMARY_SOURCES`
+is filings, IR releases, analyst actions and newswire releases — what a company
+or an analyst SAID. Journalism is absent: reading the day's coverage is what
+agent-plan 4.1 asks a blind annotator to do, but they must go find it, or the
+blind set stops measuring what our corpus missed. Retrieval's ranked clusters
+are still revealed only after an answer is committed, and a test asserts that
+ordering in the source.
+
+`--swing ID` labels one case; `--since DATE` restricts to the era the collector
+was running, which is the only way to answer whether live coverage beats the
+0.782 measured mostly over a period the system could not have covered.
