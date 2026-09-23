@@ -2797,3 +2797,24 @@ sample — fine for training a classifier, wrong for measuring recall, which is
 computed only over `blind=true` rows. Labelling them blind would quietly turn
 recall@10 into "recall over the cases we could already describe". The report and
 the module docstring both say so, and a test asserts they do.
+
+### §16.50 Uptime is a data-quality metric, and it was invisible
+
+Running on a laptop was a known compromise; what it COSTS was never measured.
+On 2026-09-22, over the previous fortnight: **144 of 337 hours collected
+nothing (43%)**, including one silent stretch of **101 hours**. The collector log
+confirms downtime rather than quiet feeds — 41 log lines across those four days
+against 400-700 on a healthy day.
+
+That is not an ops statistic here. RSS serves the last 20-50 items, so an hour
+missed is coverage gone permanently, which makes uptime the largest single input
+to catalyst coverage on this host — larger than any ranking change.
+
+`swing uptime` prints hours collected, silent hours (separating the naturally
+quiet 1am-6am ET band, because 3am on a Sunday is not an outage), the longest
+gap, and a per-day sparkline. The collector also logs the gap at STARTUP: a
+collector that has been asleep looks identical to one that has been running once
+it is back up, so the cost has to be recorded at the moment it is still known.
+
+⚠️ The diagnostic is wrapped so it can never stop collection. A metric that takes
+the collector down would cost more coverage than it measures.

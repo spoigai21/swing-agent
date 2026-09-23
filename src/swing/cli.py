@@ -38,6 +38,10 @@ def build_parser() -> argparse.ArgumentParser:
     c = sub.add_parser("collect", help="run the news collector")
     c.add_argument("--daemon", action="store_true", help="run continuously instead of one pass")
 
+    up = sub.add_parser("uptime",
+                        help="hours the collector actually collected; gaps are lost news")
+    up.add_argument("--days", type=int, default=14)
+
     sub.add_parser("health", help="per-source feed health")
 
     w = sub.add_parser("why", help="why a stock moved (uses Gemini for unusual moves)")
@@ -196,6 +200,10 @@ def dispatch(args: argparse.Namespace) -> int:
             return commands.coverage()
         case "collect":
             return commands.collect(daemon=args.daemon)
+        case "uptime":
+            from swing.ingest.uptime import main as uptime_main
+
+            return uptime_main(args.days)
         case "health":
             return commands.health()
         case "fit-weights":
@@ -334,6 +342,10 @@ def _slash(line: str, commands) -> str | None:
             print(HELP_TEXT)
         case "coverage":
             commands.coverage()
+        case "uptime":
+            from swing.ingest.uptime import main as uptime_main
+
+            uptime_main(14)
         case "health":
             commands.health()
         case "stocks" | "tickers":

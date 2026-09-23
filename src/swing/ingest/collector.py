@@ -134,6 +134,19 @@ def run(once: bool = False) -> int:
         sched.DAILY_MODEL_QUOTA,
     )
 
+    # ⚠️ Record the gap at STARTUP. A collector that has been asleep looks
+    # identical to one that has been running once it is back up, and news
+    # missed in between cannot be backfilled. 2026-09-22: 43% of the previous
+    # fortnight's hours collected nothing, including a 101-hour stretch.
+    from swing.ingest.uptime import gap_since_last_row
+
+    try:
+        if (gap := gap_since_last_row()) is not None and gap > 1.5:
+            logger.warning("collector was down for %.1f hours — that news is gone. "
+                           "`swing uptime` for the history", gap)
+    except Exception:   # never let a diagnostic stop the collector
+        logger.debug("uptime check failed", exc_info=True)
+
     signal.signal(signal.SIGINT, _handle_signal)
     signal.signal(signal.SIGTERM, _handle_signal)
 
