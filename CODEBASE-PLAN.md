@@ -2937,3 +2937,47 @@ Left alone deliberately: `sec-edgar` special-casing in `retrieval.admissible`
 and `dedup`, which is behaviour about filings rather than presentation, and
 `contamination.py`'s per-ticker fame weights, which are an eval heuristic tied
 to model pretraining rather than to the watchlist.
+
+### §16.56 GDELT stopped indexing the outlets we configured it for
+
+`swing why` was missing wire coverage, so the GDELT domain list was checked
+against BigQuery on 2026-09-23. Over the previous seven days, on ANY topic:
+
+    alive   cnbc.com 421 · theverge.com 214 · techcrunch.com 157 · arstechnica.com 66
+    DEAD    reuters.com · bloomberg.com · wsj.com · ft.com · marketwatch.com
+            barrons.com · apnews.com · theinformation.com · axios.com   (all zero)
+
+Eight of thirteen configured domains return nothing at all — GDELT no longer
+indexes the major paywalled financial outlets. Only lookalikes survive
+(`bloomberght.com` is Turkish, `wsjm.com` a Michigan radio station,
+`vendingmarketwatch.com`), so widening the filter would make it worse.
+
+WSJ, CNBC and MarketWatch still arrive — through their RSS feeds, not GDELT.
+What GDELT uniquely adds now is **bnnbloomberg.ca** (215 articles that week),
+which carries Bloomberg wire copy and is the only Bloomberg-family source still
+reachable. Added at tier 2; the dead domains are listed in a comment with the
+date they were verified, so they can be re-tested rather than forgotten.
+
+⚠️ The first attempt stored five BNN Bloomberg articles and normalize dropped
+all five. `publisher_tiers` is keyed on the STORED SOURCE — `gdelt.domains` maps
+`bnnbloomberg.ca` to the label "BNN Bloomberg", and that label is what reaches
+`articles.source` — so a `bnnbloomberg.ca:` tier key never matched and the rows
+fell to tier 4. Keyed on `bnnbloomberg` they land at tier 2.
+
+### §16.57 Benzinga: measured, and left at tier 4
+
+Robinhood leans on Benzinga, so it was promoted to tier 3 and measured rather
+than argued about. 16,313 articles became citable and pre-move coverage rose
+from 315 to 323 swings. Ranking got worse at every cutoff on the 42 labelled
+swings:
+
+    recall@1    0.548 -> 0.500
+    recall@3    0.905 -> 0.786
+    recall@10   1.000 -> 0.976
+
+More coverage, worse answers — volume outranking signal, exactly as the
+foreign-language wire copy did. Reverted, with the numbers recorded beside the
+tier in sources.yaml so nobody has to re-run the experiment to know why.
+
+⚠️ Deleting the demoted articles fails: `clusters.canonical_article` references
+them. Demote in place and rebuild; retrieval filters on tier.

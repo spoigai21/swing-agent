@@ -45,8 +45,18 @@ class TestOrgPattern:
 
 def test_only_configured_publishers_are_ingested():
     mapping = domains()
-    assert mapping["reuters.com"] == "reuters" and mapping["bloomberg.com"] == "bloomberg"
-    assert "wsj.com" in mapping and "ft.com" in mapping
+    # ⚠️ Do not name an outlet here. GDELT stopped indexing reuters.com,
+    # bloomberg.com, wsj.com, ft.com, barrons.com and apnews.com entirely
+    # (verified 2026-09-23), so a test naming one breaks when the config
+    # correctly drops it. What matters is the SHAPE: domain -> publisher label.
+    assert mapping, "at least one GDELT domain must be configured"
+    for domain, label in mapping.items():
+        assert "." in domain, f"{domain} should be a domain"
+        assert label and "." not in label, f"{label} should be a publisher name"
+    # Named outlets belong in config, not in an assertion: wsj.com and ft.com
+    # were here until GDELT stopped indexing them (2026-09-23) and the config
+    # correctly dropped them, failing a test that was asserting a business
+    # decision rather than a behaviour.
     # Aggregators GDELT indexes but this stack excludes.
     assert "finance.yahoo.com" not in mapping and "benzinga.com" not in mapping
 
@@ -79,8 +89,11 @@ class TestCostControl:
 
 class TestRowMapping:
     def _row(self, orgs, title="Nvidia and Qualcomm strike a deal"):
-        return {"DATE": 20251027153000, "SourceCommonName": "reuters.com",
-                "DocumentIdentifier": "https://www.reuters.com/x",
+        from swing.ingest.gdelt import domains
+
+        domain = next(iter(domains()))          # whatever is configured today
+        return {"DATE": 20251027153000, "SourceCommonName": domain,
+                "DocumentIdentifier": f"https://www.{domain}/x",
                 "Extras": f"<PAGE_TITLE>{title}</PAGE_TITLE>", "orgs": orgs}
 
     def _patterns(self, *tickers):
@@ -100,10 +113,13 @@ class TestRowMapping:
         assert "ticker" not in raw.raw
 
     def test_publisher_name_is_stored_so_tiering_works(self):
-        from swing.ingest.gdelt import _to_raw
+        from swing.ingest.gdelt import _to_raw, domains
 
         raw = _to_raw(self._row("NVIDIA"), self._patterns("NVDA"))
-        assert raw.source == "reuters"
+        # The PUBLISHER label, not the domain: publisher_tiers is keyed on what
+        # lands in articles.source. A `bnnbloomberg.ca` tier key never matched
+        # and five articles were dropped as tier 4 on their first normalize.
+        assert raw.source == next(iter(domains().values()))
         assert raw.raw["timestamp_precision"] == "15min"
 
     def test_a_row_naming_no_watchlist_company_is_dropped(self):

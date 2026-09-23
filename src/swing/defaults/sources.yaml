@@ -177,6 +177,12 @@ primary_sources:
   # every *-ir feed is included automatically
 
 publisher_tiers:
+  # ⚠️ Keyed on the stored SOURCE, not the domain. gdelt.domains maps
+  # bnnbloomberg.ca -> "BNN Bloomberg", and that label is what lands in
+  # articles.source; a `bnnbloomberg.ca:` key here never matched and all five
+  # articles were dropped as tier 4 on their first normalize.
+  # BNN Bloomberg carries Bloomberg wire copy; same standing as Bloomberg had.
+  bnnbloomberg: 2
   # Tier 1 — primary disclosure
   sec-edgar: 1
   nvidia-ir: 1
@@ -253,6 +259,12 @@ publisher_tiers:
   "seeking alpha": 4
   zacks: 4
   "zacks investment research": 4
+  # ⚠️ MEASURED 2026-09-23, not assumed. Promoting benzinga to tier 3 added
+  # 16,313 citable articles and made ranking worse at every cutoff on the 42
+  # labelled swings: recall@1 0.548 -> 0.500, @3 0.905 -> 0.786, @10 1.000 ->
+  # 0.976. More pre-move coverage (315 -> 323 swings) but the real catalyst
+  # ranked lower — volume outranking signal, the same way foreign-language wire
+  # copy did. Robinhood leans on this wire; that is not a reason to cite it.
   benzinga: 4
   investorplace: 4
   "motley fool": 4
@@ -313,17 +325,21 @@ gdelt:
   # scans ~0.4 GB; ingest/gdelt.py refuses to query past this ceiling.
   monthly_budget_gb: 700
   dataset: "gdelt-bq.gdeltv2.gkg_partitioned"
+  # ⚠️ VERIFIED AGAINST BIGQUERY ON 2026-09-23. Eight of the thirteen domains
+  # configured here returned ZERO articles on ANY topic over the previous seven
+  # days: GDELT no longer indexes the major paywalled financial outlets. Only
+  # lookalikes survive — bloomberght.com (Turkish), wsjm.com (a Michigan radio
+  # station), vendingmarketwatch.com — so a wildcard would make things worse.
+  #
+  # Dead, re-test occasionally with scripts and restore if they return:
+  #   reuters.com  bloomberg.com  wsj.com  ft.com  marketwatch.com
+  #   barrons.com  apnews.com  theinformation.com  axios.com
+  #
+  # WSJ, CNBC and MarketWatch still arrive — through their RSS feeds above, not
+  # through GDELT. What GDELT uniquely adds now is BNN Bloomberg.
   domains:
-    reuters.com: reuters
-    bloomberg.com: bloomberg
-    wsj.com: wsj
-    ft.com: ft
+    bnnbloomberg.ca: "BNN Bloomberg"
     cnbc.com: cnbc
-    marketwatch.com: marketwatch
-    barrons.com: barrons
-    apnews.com: ap
-    theinformation.com: "the information"
-    axios.com: axios
     techcrunch.com: techcrunch
     theverge.com: theverge
     arstechnica.com: arstechnica

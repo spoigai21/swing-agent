@@ -78,3 +78,41 @@ class TestWiredIntoNormalisation:
         from swing.ingest import normalize
 
         assert "demote_non_english" in inspect.getsource(normalize)
+
+
+class TestTierChangesAreMeasuredNotAssumed:
+    """Promoting a wire is a ranking change, and ranking changes get measured.
+
+    Benzinga was promoted to tier 3 on 2026-09-23 because Robinhood leans on it.
+    16,313 articles became citable, pre-move coverage rose from 315 to 323
+    swings — and ranking got worse at every cutoff on the 42 labelled swings:
+
+        recall@1  0.548 -> 0.500
+        recall@3  0.905 -> 0.786
+        recall@10 1.000 -> 0.976
+
+    More coverage, worse answers. Reverted.
+    """
+
+    def test_benzinga_is_tier_four(self):
+        from swing.ingest.config import sources
+
+        assert sources()["publisher_tiers"]["benzinga"] == 4
+
+    def test_the_measurement_is_recorded_beside_the_decision(self):
+        """So the next person who wonders does not have to re-run it."""
+        from swing.paths import CONFIG
+
+        text = (CONFIG / "sources.yaml").read_text()
+        assert "MEASURED 2026-09-23" in text
+        block = text[text.index("MEASURED 2026-09-23"):]
+        block = block[:block.index("benzinga: 4") + 20]
+        assert "0.548" in block and "0.500" in block
+
+    def test_aggregators_stay_out_of_citable_tiers(self):
+        from swing.ingest.config import sources
+
+        tiers = sources()["publisher_tiers"]
+        for aggregator in ("benzinga", "investing.com", "yahoo"):
+            if aggregator in tiers:
+                assert tiers[aggregator] == 4, f"{aggregator} must not be citable"
