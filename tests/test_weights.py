@@ -112,3 +112,45 @@ class TestItNeverWritesConfig:
         src = inspect.getsource(W)
         for forbidden in ("write_text", "safe_dump", "yaml.dump"):
             assert forbidden not in src
+
+
+class TestRecencyIsNotTheCatalyst:
+    """`w_timing` was 1.0, and timing_score decays with a 12h half-life, so the
+    most RECENT pre-move article almost always led the ranking. Measured over 43
+    labelled swings (13 held out) it was a clean dose-response on both splits:
+
+        w_timing   train@1  held@1
+             0.0     0.655   0.615
+             0.1     0.552   0.538
+             1.0     0.241   0.308   <- the old value
+             1.5     0.138   0.231
+
+    Production recall@1 went 0.308 -> 0.548 on the rebuild.
+    """
+
+    def test_timing_is_a_tiebreak_not_the_ranking(self):
+        from swing.ingest.config import thresholds
+
+        w = float(thresholds()["ranking"]["w_timing"])
+        assert 0.0 < w <= 0.25, (
+            f"w_timing={w}: above ~0.25 the newest article wins by default, and "
+            "the true catalyst usually is not the newest one")
+
+    def test_semantic_still_outweighs_it(self):
+        from swing.ingest.config import thresholds
+
+        cfg = thresholds()["ranking"]
+        assert float(cfg["w_semantic"]) > float(cfg["w_timing"])
+
+    def test_post_move_articles_still_earn_nothing_from_timing(self):
+        """The weight changed; the rule that timing_score is 0 at or after onset
+        did not. That rule is what enforces "published before the move"."""
+        from datetime import UTC, datetime, timedelta
+
+        from swing.analysis.dedup import ClusterView
+        from swing.analysis.rank import timing_score
+
+        onset = datetime(2026, 9, 18, 13, 30, tzinfo=UTC)
+        after = ClusterView.__new__(ClusterView)
+        after.earliest_published = onset + timedelta(hours=1)
+        assert timing_score(after, onset) == 0.0

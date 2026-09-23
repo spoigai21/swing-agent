@@ -2703,3 +2703,44 @@ exist before the move.**
 coverage 0.782, recall 0.953 covered / 0.745 blind, citation validity 1.00. None
 of the labelled catalysts depended on a midnight default, which is the good
 outcome: the rule removes a way to be wrong without removing anything true.
+
+### §16.47 Recency was the ranking, and the catalyst is rarely the newest story
+
+`recall@1` was 0.308: the article shown first was right less than a third of the
+time, and that is the one a user reads. Two candidate causes were tested offline
+against 43 labelled swings, no model calls.
+
+**The query text was not it.** Five formulations — the current keyword soup, the
+move alone, the company alone, a "why did X move?" phrasing, and a news-seeking
+phrasing — produced *identical* held-out recall at k=1, 3 and 10. A hypothesis
+worth discarding cheaply.
+
+**The timing weight was it.** `timing_score` decays exponentially with a 12-hour
+half-life, so at `w_timing: 1.0` the most recent pre-move article almost always
+led. A dose-response on both splits:
+
+    w_timing   train@1  held@1  held@3
+         0.0     0.655   0.615   0.846
+         0.1     0.552   0.538   0.923
+         0.5     0.552   0.462   0.846
+         1.0     0.241   0.308   0.846   <- the old value
+         1.5     0.138   0.231   0.846
+
+Seven points trending the same way on data the choice never saw, which is
+stronger evidence than the 192-vector grid that first hinted at it (§16.39).
+Set to **0.1**, not 0: recency is a real prior and a sensible tiebreak, and 0.1
+scores best at k=3. Post-move articles still earn zero from `timing_score`
+itself — that rule, not the weight, is what enforces "published before".
+
+Also measured: the semantic term's spread within a swing is 0.173 median, while
+one tier step is worth 0.5. Semantic barely discriminates at the top; turning it
+off leaves k=1 unchanged and costs 0.15 at k=3. A stronger relevance signal (a
+cross-encoder over the top 20) is the next lever, not a better query string.
+
+Results on the rebuild: **production recall@1 0.308 -> 0.548**, top-3 0.881,
+recall@10 covered 0.953 -> 0.977, blind 0.745 -> 0.764.
+
+⚠️ COST: this changed `config_hash`, which correctly reset the Gate 4
+confabulation count from 39 to 0. The README now says which configuration the
+"0 in 38" figure was measured on rather than carrying it forward silently. The
+nightly placebo job rebuilds it at ~12 cases a day.

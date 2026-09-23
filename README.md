@@ -63,7 +63,13 @@ for you is planned.
 
 In 38 tests where it was handed deliberately unrelated evidence, it invented a
 cause **0 times**. That is the property the rest of the design exists to
-protect, and it is measured on every release rather than asserted.
+protect, and it is measured rather than asserted.
+
+That figure was measured on the ranking configuration before 2026-09-22. Any
+change to the ranking or the prompt resets the count on purpose — results from
+two different systems must not be pooled — so `swing metrics` shows the
+confabulation rate rebuilding after a change rather than carrying an old number
+forward.
 
 ---
 

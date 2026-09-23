@@ -43,7 +43,22 @@ dedup:
 
 ranking:
   w_semantic: 1.0
-  w_timing: 1.0
+  # ⚠️ Was 1.0, and that was the single worst ranking decision in the system.
+  # timing_score decays exponentially (12h half-life), so at weight 1.0 the most
+  # RECENT pre-move article almost always led — and the true catalyst usually is
+  # not the most recent one. Measured on 43 labelled swings, 13 held out, as a
+  # clean dose-response on both splits:
+  #     w_timing   train@1  held@1  held@3
+  #          0.0     0.655   0.615   0.846
+  #          0.1     0.552   0.538   0.923
+  #          0.5     0.552   0.462   0.846
+  #          1.0     0.241   0.308   0.846   <- the old value
+  #          1.5     0.138   0.231   0.846
+  # 0.1 rather than 0.0: recency is still a real prior and a sensible tiebreak,
+  # and it scores best at k=3. `swing fit-weights --k 1` re-checks this as more
+  # swings are labelled. Post-move articles still earn ZERO from timing_score
+  # itself, which is what keeps "published before the move" enforced.
+  w_timing: 0.1
   w_tier: 0.5
   w_novelty: 0.0             # stays 0 until Phase 5.1 beats its baseline
   timing_halflife_hours: 12  # decay of timing_score with distance before onset
