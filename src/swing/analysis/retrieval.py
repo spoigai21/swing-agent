@@ -122,6 +122,34 @@ def retrieval_tickers(swing: dict) -> list[str]:
     return own + [t for t in related(swing["ticker"]) if t not in own]
 
 
+def time_is_unknown(article: dict) -> bool:
+    """True when the feed gave a DATE and no time, so 00:00 UTC is a default.
+
+    ⚠️ Not a real publication instant. Several sources — Finnhub's
+    recommendation trend, some newswire items, a scattering of WSJ and CNBC rows
+    — carry only a date, which lands at midnight and therefore precedes every
+    intraday onset. A 2pm story then reads as pre-move evidence for a 9:30 move.
+    An audit on 2026-09-22 found 56 such clusters, 28 of them treated as
+    pre-move on exactly that basis.
+    """
+    ts = article.get("published_at")
+    return bool(ts) and ts.hour == 0 and ts.minute == 0 and ts.second == 0
+
+
+def timing_is_credible(article: dict, onset) -> bool:
+    """May this article be used as PRE-MOVE evidence?
+
+    A date-only timestamp is believable when the date itself already settles the
+    question — a story from two days earlier precedes a move whatever the hour.
+    It is not believable on the day of the onset, where the hour is the whole
+    question. Dropping it there costs a citation at worst; keeping it invents
+    one, which is the failure this system exists to prevent.
+    """
+    if not time_is_unknown(article):
+        return True
+    return article["published_at"].date() < onset.date()
+
+
 def admissible(article: dict, own: list[str]) -> bool:
     """Drop a related company's periodic reports from a stock's evidence.
 
@@ -160,7 +188,8 @@ def build_for_swing(swing_id: int, persist: bool = True) -> dict[str, list[Clust
     qvec = _query_vec(swing)
     for timing, w in (("pre_move", pre_w), ("post_move", post_w)):
         arts = [a for a in _articles_in(tickers, w.start, w.end, max_tier)
-                if admissible(a, own)]
+                if admissible(a, own)
+                and (timing != "pre_move" or timing_is_credible(a, onset))]
         clusters = cluster_window(arts, timing)
         if timing == "pre_move":
             nov = {c.canonical_article: novelty_score(c, corpus) for c in clusters}

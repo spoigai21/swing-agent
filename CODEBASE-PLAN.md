@@ -2681,3 +2681,25 @@ ordering in the source.
 `--swing ID` labels one case; `--since DATE` restricts to the era the collector
 was running, which is the only way to answer whether live coverage beats the
 0.782 measured mostly over a period the system could not have covered.
+
+### §16.46 A date is not a timestamp
+
+Several feeds supply a date with no time. That lands at 00:00 UTC and therefore
+precedes every intraday onset, so a story filed at 2pm counted as pre-move
+evidence for a 9:30am move. The 2026-09-22 audit found 56 such clusters, 28 of
+them treated as pre-move on that basis alone.
+
+`timing_is_credible` now refuses a date-only article as PRE-MOVE evidence when
+it falls on the onset day, and accepts it on any earlier day — where the date
+settles the question whatever the hour. Post-move clusters are untouched: they
+are shown as context, and the claim being protected is specifically "published
+BEFORE the move".
+
+The rule is chosen on an asymmetry, not a preference: **dropping one of these
+can only lose a citation; keeping one can manufacture evidence that did not
+exist before the move.**
+
+37 pre-move clusters were dropped on the rebuild and every metric held —
+coverage 0.782, recall 0.953 covered / 0.745 blind, citation validity 1.00. None
+of the labelled catalysts depended on a midnight default, which is the good
+outcome: the rule removes a way to be wrong without removing anything true.
