@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import random
 from dataclasses import dataclass
-from datetime import date
+from datetime import UTC, date, datetime
 
 from swing.interface import explain
 
@@ -92,3 +92,61 @@ class TestTheSplitAlwaysAddsUp:
             assert round(sum(shown), 1) == round(sum(vals) * 100, 1)
             for v, s in zip(vals, shown):
                 assert abs(v * 100 - s) <= 0.1 + 1e-9, (v * 100, s)
+
+
+class TestAQuietDayDoesNotClaimThereIsNoNews:
+    """`swing why NFLX --date 2026-09-22` said "there's no company-specific news
+    to find" on a day HSBC downgraded the stock. The downgrade was in the corpus
+    the whole time; what was absent was an unusual MOVE.
+
+    Those are different claims and only one of them is measured. A user checking
+    the ticker on a broker app disproves the stronger one in seconds, and that
+    costs more trust than the answer was worth.
+    """
+
+    def test_no_branch_claims_the_absence_of_news(self):
+        import inspect
+
+        from swing.interface import explain
+
+        src = inspect.getsource(explain.normal_day)
+        assert "no company-specific news" not in src
+        assert src.count("no company-specific move to explain") >= 2
+        assert "no company-specific story to explain" not in src
+
+    def test_company_news_is_listed_when_it_exists(self, monkeypatch):
+        from swing.interface import explain
+
+        monkeypatch.setattr(explain, "notable_company_news", lambda t, d, limit=3: [
+            {"published_at": datetime(2026, 9, 22, 17, 18, tzinfo=UTC),
+             "source": "analyst-ratings", "url": "",
+             "headline": "HSBC downgrades Netflix (NFLX) to Hold from Buy"}])
+        out = explain.normal_day(Dec(ticker="NFLX", residual=-0.002, residual_z=-0.1), "XLC")
+        assert "HSBC downgrades Netflix" in out
+        assert "the move does not need it" in out
+
+    def test_nothing_is_added_when_there_is_no_news(self, monkeypatch):
+        from swing.interface import explain
+
+        monkeypatch.setattr(explain, "notable_company_news", lambda t, d, limit=3: [])
+        out = explain.normal_day(Dec(residual=-0.002, residual_z=-0.1), "XLC")
+        assert "company news" not in out
+
+    def test_a_database_failure_never_breaks_the_answer(self, monkeypatch):
+        """The listing is a courtesy; the decomposition is the answer."""
+        from swing.interface import explain
+
+        def boom(*a, **k):
+            raise RuntimeError("db down")
+
+        monkeypatch.setattr(explain, "notable_company_news", boom)
+        out = explain.normal_day(Dec(residual=-0.002, residual_z=-0.1), "XLC")
+        assert "Why:" in out
+
+    def test_the_sources_come_from_config_not_a_literal(self):
+        """Hand-written source lists had already drifted between two modules."""
+        import inspect
+
+        from swing.interface import explain
+
+        assert "primary_sources()" in inspect.getsource(explain.notable_company_news)

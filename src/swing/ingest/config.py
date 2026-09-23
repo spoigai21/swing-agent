@@ -93,6 +93,16 @@ def feeds(include_disabled: bool = False) -> list[FeedSpec]:
     return out
 
 
+def primary_sources() -> list[str]:
+    """Sources reporting what a company or an analyst DID, not commentary.
+
+    Configured in sources.yaml so adding a wire needs no code change. The `-ir`
+    feeds are matched by suffix rather than listed, since each new company adds
+    one.
+    """
+    return list(sources().get("primary_sources") or [])
+
+
 def edgar_config() -> dict[str, Any]:
     return sources()["edgar"]
 

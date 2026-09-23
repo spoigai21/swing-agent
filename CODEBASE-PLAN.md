@@ -2888,3 +2888,29 @@ overwrites a working setup.
 happened to be up, and failed in CI against the unreachable DATABASE_URL. Both
 are stubbed now. The rule stands: a test that needs SQL is marked `db` and runs
 in the `sql` job, never by accident in the fast one.
+
+### §16.54 "No company-specific news to find" was a claim we could not make
+
+`swing why NFLX --date 2026-09-22` reported a normal day and added: *"there's no
+company-specific news to find."* HSBC had downgraded Netflix that afternoon, and
+the downgrade was in the corpus — timestamped 17:18Z, tier 2, correctly tagged.
+
+The message conflated two different claims:
+
+    no unusual MOVE   measured, and true: residual -0.2%, z = 0.1
+    no NEWS           not measured, and false
+
+A user checking the ticker on a broker app disproves the second in seconds, and
+that costs more trust than the sentence was worth. Every branch of `normal_day`
+now says there is no company-specific **move** to explain, and when primary
+sources did report something that day it is listed under "There was company news,
+but the move does not need it".
+
+⚠️ The first version of this hand-wrote its own source list in `explain.py`,
+while `annotate.py` already had the same concept under another name — two copies
+that would drift the moment a wire was added. `primary_sources` now lives in
+sources.yaml and both read it through `swing.ingest.config`, so adding a source
+is a config change and neither caller can fall behind.
+
+The listing is a courtesy wrapped in a try/except: the decomposition is the
+answer, and a database hiccup must not withhold it.

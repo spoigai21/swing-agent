@@ -145,6 +145,21 @@ feeds:
 # Anything not listed here defaults to tier 4 and is DROPPED at normalize time.
 # Add publishers deliberately; the default is exclusion, not inclusion.
 # ---------------------------------------------------------------------------
+# Sources that report what a COMPANY or an ANALYST actually did, as opposed to
+# what a journalist concluded. Two places need exactly this distinction and had
+# grown separate copies of it:
+#   * the blind annotation pane, which may show primary material but must not
+#     show journalism, or the blind set stops measuring what our corpus missed
+#   * `swing why` on a quiet day, which names company news without claiming it
+#     caused anything
+# Add a source here and both pick it up; no code change.
+primary_sources:
+  - sec-edgar
+  - analyst-ratings
+  - prnewswire
+  - businesswire
+  # every *-ir feed is included automatically
+
 publisher_tiers:
   # Tier 1 — primary disclosure
   sec-edgar: 1

@@ -21,12 +21,26 @@ class TestBlindnessSurvives:
         """Primary sources say what a company or analyst SAID. Reading the day's
         coverage is encouraged — but they go find it, so the blind set keeps
         measuring what our corpus missed."""
+        from swing.ingest.config import primary_sources
+
         for newsroom in ("bloomberg", "cnbc", "marketwatch", "wsj", "reuters", "yahoo"):
-            assert newsroom not in A.PRIMARY_SOURCES
+            assert newsroom not in primary_sources()
 
     def test_only_company_and_analyst_statements_are(self):
-        assert set(A.PRIMARY_SOURCES) == {
+        from swing.ingest.config import primary_sources
+
+        assert set(primary_sources()) == {
             "sec-edgar", "analyst-ratings", "prnewswire", "businesswire"}
+
+    def test_the_list_lives_in_config_not_in_two_modules(self):
+        """It had grown a second copy inside explain.py; a source added to one
+        would have been missing from the other."""
+        import inspect
+
+        from swing.interface import explain
+
+        assert "primary_sources()" in inspect.getsource(explain.notable_company_news)
+        assert "NOTABLE_SOURCES" not in inspect.getsource(explain)
 
     def test_the_research_pane_is_not_our_ranked_list(self):
         src = inspect.getsource(A._research_pane)

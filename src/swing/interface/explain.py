@@ -462,21 +462,65 @@ def header(dec, sector_etf: str | None) -> str:
     return f"{move}\n  Split: {' · '.join(parts)}"
 
 
+def notable_company_news(ticker: str, day, limit: int = 3) -> list[dict]:
+    """Company-specific items on a day no swing was flagged.
+
+    ⚠️ Added after `swing why NFLX --date 2026-09-22` said "there's no
+    company-specific news to find" on a day HSBC had downgraded the stock. The
+    article was in the corpus; the move simply was not unusual. Saying there is
+    no news, when what is true is that there is no unusual MOVE, is a claim the
+    tool cannot support and a user can immediately disprove.
+    """
+    from swing.ingest.config import primary_sources
+    from swing.store.session import connect
+
+    with connect() as conn:
+        return [dict(r) for r in conn.execute(
+            """
+            SELECT published_at, source, headline, url
+            FROM articles
+            WHERE %s = ANY(tickers)
+              AND published_at >= %s::date AND published_at < %s::date + 1
+              AND (source = ANY(%s) OR source LIKE %s)
+            ORDER BY source_tier, published_at
+            LIMIT %s
+            """,
+            (ticker, day, day, primary_sources(), "%-ir", limit)).fetchall()]
+
+
+def _quiet_day_news(dec) -> str:
+    """Name what the company did, without claiming it moved the stock."""
+    try:
+        items = notable_company_news(dec.ticker, dec.d)
+    except Exception:   # noqa: BLE001 — a nicety must never break the answer
+        return ""
+    if not items:
+        return ""
+    lines = ["\n  There was company news, but the move does not need it:"]
+    lines += [f"  • {_when(i['published_at'])} · {_source_label(i['source'])}"
+              f" · {i['headline'][:76]}" for i in items]
+    return "\n".join(lines)
+
+
 def normal_day(dec, sector_etf: str | None) -> str:
     size = f"about {abs(dec.residual_z):.1f}x a typical day for {dec.ticker}"
     factors = dec.market_component + dec.sector_component
     drivers = "the market" + (f" and {_sector(sector_etf)}" if sector_etf else "")
+    # ⚠️ Every branch says there is no unusual MOVE — never that there is no
+    # news. Those are different claims, and only the first one is measured.
     if abs(dec.residual) <= 0.5 * abs(factors):
-        return (f"\nWhy: mostly {drivers}. {dec.ticker}'s own part is {size}, which is "
-                "normal, so there's no company-specific news to find.")
-    if factors * dec.residual < 0:
+        head = (f"\nWhy: mostly {drivers}. {dec.ticker}'s own part is {size}, which is "
+                "normal, so there is no company-specific move to explain.")
+    elif factors * dec.residual < 0:
         # The stock went against its factors: say that, not "mostly the market".
         verb = "lagged" if dec.residual < 0 else "beat"
-        return (f"\nWhy: {dec.ticker} {verb} {drivers} by {abs(dec.residual) * 100:.1f}%. "
-                f"That gap is {size}, within its normal range, so there's no "
-                "company-specific story to explain.")
-    return (f"\nWhy: nothing unusual. {dec.ticker}'s own move is {size}, within its normal "
-            "range, so there's no company-specific story to explain.")
+        head = (f"\nWhy: {dec.ticker} {verb} {drivers} by {abs(dec.residual) * 100:.1f}%. "
+                f"That gap is {size}, within its normal range, so there is no "
+                "company-specific move to explain.")
+    else:
+        head = (f"\nWhy: nothing unusual. {dec.ticker}'s own move is {size}, within its "
+                "normal range, so there is no company-specific move to explain.")
+    return head + _quiet_day_news(dec)
 
 
 def render_verdict(verdict: str, payload: dict, note: str | None,

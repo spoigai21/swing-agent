@@ -32,7 +32,10 @@ EVENT_TYPES = ["earnings", "guidance", "analyst_action", "m_and_a", "regulatory"
 #: ⚠️ Journalism (bloomberg, cnbc, marketwatch…) is deliberately absent. Reading
 #: the day's coverage is encouraged — but they should go find it themselves, or
 #: the blind set stops measuring what our corpus missed.
-PRIMARY_SOURCES = ("sec-edgar", "analyst-ratings", "prnewswire", "businesswire")
+#:
+#: Defined in sources.yaml (`primary_sources`) and read through
+#: `swing.ingest.config.primary_sources`, so this list and the one `swing why`
+#: uses on a quiet day cannot drift apart.
 
 #: 8-K Item numbers are free event labels. Offered as a DEFAULT, never applied
 #: silently — the annotator can overrule it with one keystroke.
@@ -128,6 +131,7 @@ def _research_pane(swing: dict) -> None:
     from datetime import timedelta
 
     from swing.analysis.retrieval import own_tickers
+    from swing.ingest.config import primary_sources
 
     d, ticker = swing["d"], swing["ticker"]
     # A sector ETF files nothing itself; its constituents do.
@@ -148,7 +152,7 @@ def _research_pane(swing: dict) -> None:
               AND a.published_at::date BETWEEN %s AND %s
             ORDER BY a.published_at
             """,
-            (list(PRIMARY_SOURCES), "%-ir", filing_tickers,
+            (primary_sources(), "%-ir", filing_tickers,
              d - timedelta(days=4), d + timedelta(days=1)),
         ).fetchall()
         bars = conn.execute(
