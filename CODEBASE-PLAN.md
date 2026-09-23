@@ -2744,3 +2744,30 @@ recall@10 covered 0.953 -> 0.977, blind 0.745 -> 0.764.
 confabulation count from 39 to 0. The README now says which configuration the
 "0 in 38" figure was measured on rather than carrying it forward silently. The
 nightly placebo job rebuilds it at ~12 cases a day.
+
+### §16.48 The eval backlog was not draining
+
+The accuracy backlog was left to the scheduler on the assumption it would clear
+itself at ~12 cases a day. It was not. Measured over five days, production
+attributions were 1, 2, 6, 3 — and on 2026-09-22 the jobs spent the entire
+20-request day and stored **zero**. Every attempt failed with 503 "high demand",
+and a 503 is charged against the free tier exactly like a served call.
+
+The cause was a flat `RETRY_GAP = 60min`. Gemini's overload windows last longer
+than an hour, so each retry landed back in the same storm, burning four requests
+per attempt (the consecutive-failure stop) until the day was gone.
+
+The gap now depends on what the last attempt ACHIEVED:
+
+    stored something   15 min   the model is healthy; spend the budget
+    stored nothing     45 min, doubling to a 4-hour cap
+
+Retry soon when it works, back off hard when it does not, and cap the backoff so
+a bad morning cannot write off the afternoon. The attempt is stamped BEFORE the
+run, so a crash mid-run cannot free an immediate retry, and the old bare
+timestamp file still parses so upgrading does not make every job think it has
+never run.
+
+⚠️ `2 ** (streak - 1)` overflows a timedelta multiply long before the cap applies
+— the exponent is clamped, not just the result. Caught by a test asserting the
+ladder terminates at `next_gap(99)`.

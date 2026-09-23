@@ -1,7 +1,9 @@
 """The collector's once-a-day jobs: post-close run + alerts, nightly placebo."""
 from __future__ import annotations
 
-from datetime import date, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
+
+import pytest
 
 from swing.interface import schedule as s
 
@@ -544,3 +546,85 @@ class TestOneSwingCountsOnce:
         assert "max(x.id)" in LATEST_PRODUCTION
         assert "x.swing_id = a.swing_id" in LATEST_PRODUCTION
         assert "run_kind = 'production'" in LATEST_PRODUCTION
+
+
+class TestRetryPacingFollowsResults:
+    """2026-09-22 spent all 20 requests and stored nothing: every attempt landed
+    in the same Gemini overload window, and a 503 is charged like a served call.
+    A flat 60-minute gap retries straight back into the storm."""
+
+    def _job(self, tmp_path, monkeypatch, results):
+        from swing.eval import abstention
+
+        calls = []
+
+        def run(limit=None):
+            calls.append(limit)
+            return results[min(len(calls) - 1, len(results) - 1)]
+
+        monkeypatch.setattr(s, "DATA", tmp_path)
+        monkeypatch.setattr(s, "eval_budget_left", lambda *a: 8)
+        monkeypatch.setattr(abstention, "pending", lambda: [1, 2, 3])
+        monkeypatch.setattr(abstention, "run", run)
+        return calls
+
+    def test_a_run_that_worked_retries_soon(self, tmp_path, monkeypatch):
+        """The model is healthy and the budget is there to spend."""
+        calls = self._job(tmp_path, monkeypatch, [{"attributed": 3}])
+        start = datetime(2026, 9, 22, 1, 0, tzinfo=s.PT)
+        s.abstention_if_due(start)
+        s.abstention_if_due(start + s.RETRY_GAP_OK + timedelta(minutes=1))
+        assert len(calls) == 2
+
+    def test_a_run_that_stored_nothing_backs_off(self, tmp_path, monkeypatch):
+        calls = self._job(tmp_path, monkeypatch, [{"attributed": 0}])
+        start = datetime(2026, 9, 22, 1, 0, tzinfo=s.PT)
+        s.abstention_if_due(start)
+        s.abstention_if_due(start + s.RETRY_GAP_OK + timedelta(minutes=1))
+        assert len(calls) == 1, "must not retry into the same overload window"
+        s.abstention_if_due(start + s.RETRY_GAP_FAILED + timedelta(minutes=1))
+        assert len(calls) == 2
+
+    def test_repeated_failures_back_off_further(self):
+        assert s.next_gap(1) == s.RETRY_GAP_FAILED
+        assert s.next_gap(2) == s.RETRY_GAP_FAILED * 2
+        assert s.next_gap(3) > s.next_gap(2)
+
+    def test_the_backoff_is_capped_so_a_bad_morning_keeps_the_afternoon(self):
+        assert s.next_gap(99) == s.RETRY_GAP_MAX
+        assert s.RETRY_GAP_MAX <= timedelta(hours=6)
+
+    def test_success_clears_the_streak(self, tmp_path, monkeypatch):
+        calls = self._job(tmp_path, monkeypatch, [{"attributed": 0}, {"attributed": 2}])
+        t = datetime(2026, 9, 22, 1, 0, tzinfo=s.PT)
+        s.abstention_if_due(t)                                    # fails
+        s.abstention_if_due(t + s.RETRY_GAP_FAILED + timedelta(minutes=1))  # succeeds
+        assert len(calls) == 2
+        s.abstention_if_due(t + s.RETRY_GAP_FAILED + s.RETRY_GAP_OK
+                            + timedelta(minutes=2))
+        assert len(calls) == 3, "a success must reset the backoff"
+
+    def test_a_crash_mid_run_does_not_free_an_immediate_retry(self, tmp_path,
+                                                              monkeypatch):
+        """Otherwise a failing runner spends the rest of the day in a loop."""
+        from swing.eval import abstention
+
+        monkeypatch.setattr(s, "DATA", tmp_path)
+        monkeypatch.setattr(s, "eval_budget_left", lambda *a: 8)
+        monkeypatch.setattr(abstention, "pending", lambda: [1])
+        monkeypatch.setattr(abstention, "run",
+                            lambda **k: (_ for _ in ()).throw(RuntimeError("boom")))
+        t = datetime(2026, 9, 22, 1, 0, tzinfo=s.PT)
+        with pytest.raises(RuntimeError):
+            s.abstention_if_due(t)
+        when, streak = s._read_attempt("abstention")
+        assert when is not None and streak == 1
+
+    def test_an_old_bare_timestamp_file_is_still_readable(self, tmp_path,
+                                                          monkeypatch):
+        """Upgrading must not make every job think it has never run."""
+        monkeypatch.setattr(s, "DATA", tmp_path)
+        (tmp_path / ".last_attempt_abstention").write_text(
+            datetime(2026, 9, 22, 1, 0, tzinfo=UTC).isoformat())
+        when, streak = s._read_attempt("abstention")
+        assert when is not None and streak == 0

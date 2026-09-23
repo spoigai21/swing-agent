@@ -128,35 +128,71 @@ def daily_if_due(now: datetime | None = None) -> int:
 # the day done before running, then attributed zero because the model returned
 # 503 "high demand" and read timeouts — sidelining them for the rest of a day
 # that still had 10 requests left. `pending()` is the natural terminator: when
-# the swings are attributed there is nothing to do. A minimum gap between
-# attempts stops a bad hour from spinning through the quota.
-RETRY_GAP = timedelta(minutes=60)
+# the swings are attributed there is nothing to do.
+#
+# ⚠️ And the gap between attempts must depend on what the last attempt ACHIEVED.
+# With a flat 60 minutes, 2026-09-22 spent its whole 20-request day and stored
+# nothing: every attempt landed inside the same Gemini overload window, and a
+# 503 is charged against the free tier exactly like a served call. Over five
+# days the eval jobs produced ~3 cases a day against a 12-case budget.
+#
+# So: retry SOON after a run that worked, because the model is healthy and the
+# budget is there to spend; back off hard after a run that produced nothing,
+# because the next few minutes will fail the same way and each failure costs a
+# case. The backoff is capped so a bad morning cannot write off the afternoon.
+RETRY_GAP_OK = timedelta(minutes=15)
+RETRY_GAP_FAILED = timedelta(minutes=45)
+RETRY_GAP_MAX = timedelta(hours=4)
 
 
 def _attempt_path(name: str):
     return DATA / f".last_attempt_{name}"
 
 
+def _read_attempt(name: str) -> tuple[datetime | None, int]:
+    """(when, consecutive_failed_runs). Tolerates the old bare-timestamp file."""
+    try:
+        text = _attempt_path(name).read_text().strip()
+    except OSError:
+        return None, 0
+    when, _, streak = text.partition("|")
+    try:
+        return datetime.fromisoformat(when), int(streak or 0)
+    except ValueError:
+        return None, 0
+
+
+def next_gap(streak: int) -> timedelta:
+    """How long to wait after `streak` consecutive runs that stored nothing.
+
+    ⚠️ Clamp the exponent, not just the result. A long streak makes
+    `2 ** (streak - 1)` an integer too large to multiply a timedelta by, so the
+    cap never gets a chance to apply and the scheduler raises instead of waiting.
+    """
+    if streak <= 0:
+        return RETRY_GAP_OK
+    steps = min(streak - 1, 16)
+    return min(RETRY_GAP_FAILED * (2 ** steps), RETRY_GAP_MAX)
+
+
 def _may_attempt(name: str, now: datetime) -> bool:
     # ⚠️ The timestamp is written INTO the file, not taken from its mtime. These
     # functions are driven by a passed-in `now`, and mtime is wall-clock, so the
     # two disagree wherever the caller supplies a time — which is every test.
-    path = _attempt_path(name)
-    try:
-        last = datetime.fromisoformat(path.read_text().strip())
-    except (OSError, ValueError):
+    last, streak = _read_attempt(name)
+    if last is None:
         return True
-    return (now - last) >= RETRY_GAP
+    return (now - last) >= next_gap(streak)
 
 
-def _record_attempt(name: str, now: datetime) -> None:
+def _record_attempt(name: str, now: datetime, streak: int) -> None:
     path = _attempt_path(name)
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(now.isoformat())
+    path.write_text(f"{now.isoformat()}|{streak}")
 
 
 def _eval_job_due(name: str, at, now: datetime | None, pending, run) -> int:
-    """Run an eval backlog job: after `at`, at most hourly, until nothing pends."""
+    """Run an eval backlog job: after `at`, paced by success, until nothing pends."""
     now = now or datetime.now(UTC)
     if now.astimezone(PT).time() < at:
         return 0
@@ -167,9 +203,17 @@ def _eval_job_due(name: str, at, now: datetime | None, pending, run) -> int:
     budget = eval_budget_left(now)
     if budget <= 0:
         return 0                      # the reserve is not the eval jobs' to spend
-    _record_attempt(name, now)
+    _, streak = _read_attempt(name)
+    # Stamp BEFORE running: a crash mid-run must not free the job to retry at
+    # once and spend the rest of the day on whatever is failing.
+    _record_attempt(name, now, streak + 1)
     result = run(limit=budget)
-    logger.info("scheduled %s: %s", name, result)
+    # A runner may return anything; only a dict reporting `attributed` counts as
+    # evidence that the model answered.
+    stored = int(result.get("attributed") or 0) if isinstance(result, dict) else 0
+    _record_attempt(name, now, 0 if stored else streak + 1)
+    logger.info("scheduled %s: %s (next attempt in %s)", name, result,
+                next_gap(0 if stored else streak + 1))
     return 0
 
 
