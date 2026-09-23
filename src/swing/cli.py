@@ -138,6 +138,11 @@ def build_parser() -> argparse.ArgumentParser:
     rc.add_argument("--min-similarity", type=float, default=0.35)
     sub.add_parser("source-precision",
                    help="which sources actually explain moves, measured")
+    lg = sub.add_parser("label-gaps",
+                        help="unlabelled swings likely to be an event type nothing has")
+    lg.add_argument("--type", dest="etype",
+                    help="only this event type (regulatory, litigation, …)")
+    lg.add_argument("--limit", type=int, default=6)
     sub.add_parser("calibration",
                    help="is the agent's stated confidence worth anything")
     sub.add_parser("dbinit", help="apply the database schema (idempotent)")
@@ -206,6 +211,10 @@ def dispatch(args: argparse.Namespace) -> int:
             from swing.eval.sources import main as sources_main
 
             return sources_main()
+        case "label-gaps":
+            from swing.eval.classgaps import main as gaps_main
+
+            return gaps_main(args.limit, args.etype)
         case "calibration":
             from swing.eval.calibration import main as calibration_main
 

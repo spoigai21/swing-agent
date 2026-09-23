@@ -2771,3 +2771,29 @@ never run.
 ⚠️ `2 ** (streak - 1)` overflows a timedelta multiply long before the cap applies
 — the exponent is clamped, not just the result. Caught by a test asserting the
 ladder terminates at `next_gap(99)`.
+
+### §16.49 Finding the classes 5.2 has never seen
+
+§16.25 concluded Phase 5.2 needed labels rather than a bigger model. The
+distribution says which:
+
+    regulatory 0   litigation 0   management 0   macro 2   guidance 3
+    earnings 16    product 16     other 9        analyst_action 5   m_and_a 4
+
+⚠️ An earlier note in this session said `product` was empty. It has 16. The
+genuinely empty three are regulatory, litigation and management.
+
+macro-F1 weights every class equally, so five thin classes are most of what
+holds 5.2 back, and no model learns a class with no examples. The expensive part
+is finding a litigation case among 312 unlabelled swings, so `swing label-gaps`
+orders the queue by what each swing's pre-move coverage actually says —
+"Starbucks wins dismissal of Missouri lawsuit" for litigation, "Magnificent
+Seven Rally After Fed Rate Cut" for macro, tariff and export-control stories for
+regulatory. The patterns choose who gets looked at first; the annotator still
+decides every label.
+
+⚠️ These must be labelled in ASSISTED mode. A keyword-selected swing is a biased
+sample — fine for training a classifier, wrong for measuring recall, which is
+computed only over `blind=true` rows. Labelling them blind would quietly turn
+recall@10 into "recall over the cases we could already describe". The report and
+the module docstring both say so, and a test asserts they do.
