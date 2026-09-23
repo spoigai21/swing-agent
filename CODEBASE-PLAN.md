@@ -2818,3 +2818,30 @@ it is back up, so the cost has to be recorded at the moment it is still known.
 
 ⚠️ The diagnostic is wrapped so it can never stop collection. A metric that takes
 the collector down would cost more coverage than it measures.
+
+### §16.51 Foreign-language wire copy was outranking newsrooms
+
+Re-asking GOOGL 2026-09-21 surfaced its two best pre-move items:
+
+    ARTPRICE-NACHRICHTEN: EIN WELTBUCH WIRD ZUM SPIEGEL DER KÜNSTLICHEN INTELLIGENZ
+    Noticia de Artprice: una obra literaria universal se convierte en espejo...
+
+Tier 2, because that is PR Newswire's tier, so they outranked every newsroom
+story in the window. 482 citable articles were in that state.
+
+They are worse than irrelevant. The embedder is `bge-base-en-v1.5`, an ENGLISH
+model, so foreign text lands somewhere arbitrary in the vector space — its
+similarity to the query is noise, not a low score, and noise sometimes scores
+high. The attribution prompt is English too, so a cited German release tells a
+reader nothing.
+
+`demote_non_english` puts them at tier 4: stored, counted, never cited. Three
+independent signals — non-Latin script, a wire's translated-copy marker
+(NACHRICHTEN, Noticia, COMUNICADO, Communiqué…), or non-English letters TOGETHER
+with an absence of English stopwords. The last pair is deliberate: "Moët",
+"Nestlé" and "São Paulo" appear in perfectly English copy, so accents alone
+never decide it, and a headline under six words is kept because it carries no
+stopword evidence either way.
+
+After the rebuild GOOGL's evidence leads with Google's own product posts, and
+recall held at 0.977 covered / 0.764 blind.

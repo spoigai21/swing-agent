@@ -22,6 +22,7 @@ from typing import Any
 from swing.common import logging as log
 from swing.common.timeutil import assert_utc
 from swing.ingest.config import feeds, sources, stocks, thresholds
+from swing.ingest.language import demote_non_english
 from swing.store.session import connect
 
 logger = log.get("ingest.normalize")
@@ -243,6 +244,11 @@ def normalize_batch(limit: int = 256) -> dict[str, int]:
     keep, dropped = [], 0
     for r in rows:
         tier = resolve_tier(r)
+        # ⚠️ A foreign-language wire release keeps its publisher's tier and so
+        # outranks every newsroom story, while embedding as noise: the model is
+        # bge-base-en. GOOGL 2026-09-21 was offered two German/Spanish Artprice
+        # releases as its best pre-move evidence. Demoted, never dropped.
+        tier = demote_non_english(r["headline"], r.get("summary"), tier)
         if tier >= DEFAULT_TIER:
             dropped += 1
             continue
