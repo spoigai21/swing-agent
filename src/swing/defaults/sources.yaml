@@ -153,6 +153,22 @@ feeds:
 #   * `swing why` on a quiet day, which names company news without claiming it
 #     caused anything
 # Add a source here and both pick it up; no code change.
+# How a source is named in an answer. Anything missing falls back to a sensible
+# guess (a `*-ir` feed becomes "company press release", everything else is
+# title-cased), so this is optional — but adding a feed and a label together
+# keeps the output readable without a code change.
+source_labels:
+  sec-edgar: SEC filing
+  analyst-ratings: analyst rating
+  finnhub-recommendation: analyst ratings
+  dowjones: Dow Jones
+  wsj: WSJ
+  marketwatch: MarketWatch
+  cnbc: CNBC
+  prnewswire: PR Newswire
+  businesswire: Business Wire
+  google-blog: Google blog
+
 primary_sources:
   - sec-edgar
   - analyst-ratings

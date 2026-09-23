@@ -2914,3 +2914,26 @@ is a config change and neither caller can fall behind.
 
 The listing is a courtesy wrapped in a try/except: the decomposition is the
 answer, and a database hiccup must not withhold it.
+
+### §16.55 The same drift, in two more places
+
+Auditing after §16.54 found two more hand-written tables in `explain.py`:
+
+    SECTOR_LABELS   SMH -> "chip stocks", XLK -> "tech stocks", ...
+    SOURCE_LABELS   sec-edgar -> "SEC filing", cnbc -> "CNBC", ...
+
+Both are the same failure: add a sector to watchlist.yaml and answers print the
+bare ETF ticker; add a feed to sources.yaml and they print a title-cased id.
+Config is the source of truth for what exists, so it has to be the source of
+truth for what those things are called.
+
+Sector short labels now live beside the sector (`label:` in watchlist.yaml,
+falling back to the long name, then the ticker). Source display names live in
+sources.yaml under `source_labels`, falling back to "company press release" for
+any `*-ir` feed and title case otherwise — so the fallback stays sensible and
+the table stays optional.
+
+Left alone deliberately: `sec-edgar` special-casing in `retrieval.admissible`
+and `dedup`, which is behaviour about filings rather than presentation, and
+`contamination.py`'s per-ticker fame weights, which are an eval heuristic tied
+to model pretraining rather than to the watchlist.

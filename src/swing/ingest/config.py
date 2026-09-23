@@ -93,6 +93,22 @@ def feeds(include_disabled: bool = False) -> list[FeedSpec]:
     return out
 
 
+def source_labels() -> dict[str, str]:
+    """Display name per source id. Optional; callers fall back to a guess."""
+    return dict(sources().get("source_labels") or {})
+
+
+def sector_label(ticker: str) -> str:
+    """The short phrase an answer uses for a sector ETF ("chip stocks").
+
+    ⚠️ Was a dict in explain.py, so adding a sector to watchlist.yaml printed
+    the bare ETF ticker at users. Falls back to the sector's long name, then to
+    the ticker itself.
+    """
+    entry = sectors().get(ticker) or {}
+    return entry.get("label") or entry.get("name") or ticker
+
+
 def primary_sources() -> list[str]:
     """Sources reporting what a company or an analyst DID, not commentary.
 

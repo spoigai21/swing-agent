@@ -63,10 +63,10 @@ stocks:
 # on SPY alone. The daily batch runs these FIRST so stock attributions can
 # reference an already-computed sector story.
 sectors:
-  SMH: {name: VanEck Semiconductor ETF,        sector_etf: null, entity_type: sector}
-  XLK: {name: Technology Select Sector SPDR,   sector_etf: null, entity_type: sector}
-  XLC: {name: Communication Services SPDR,     sector_etf: null, entity_type: sector}
-  XLY: {name: Consumer Discretionary SPDR,     sector_etf: null, entity_type: sector}
+  SMH: {name: VanEck Semiconductor ETF,        sector_etf: null, entity_type: sector, label: chip stocks}
+  XLK: {name: Technology Select Sector SPDR,   sector_etf: null, entity_type: sector, label: tech stocks}
+  XLC: {name: Communication Services SPDR,     sector_etf: null, entity_type: sector, label: communication stocks}
+  XLY: {name: Consumer Discretionary SPDR,     sector_etf: null, entity_type: sector, label: consumer stocks}
 
 market:
   SPY: {name: SPDR S&P 500 ETF}

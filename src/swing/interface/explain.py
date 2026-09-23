@@ -35,13 +35,10 @@ ET = ZoneInfo("America/New_York")
 SESSION_OPEN = time(9, 30)
 SESSION_FINAL = time(16, 15)        # the daily bar settles shortly after the close
 
-SECTOR_LABELS = {"SMH": "chip stocks", "XLK": "tech stocks",
-                 "XLC": "communication stocks", "XLY": "consumer stocks"}
-SOURCE_LABELS = {"sec-edgar": "SEC filing", "dowjones": "Dow Jones", "wsj": "WSJ",
-                 "marketwatch": "MarketWatch", "cnbc": "CNBC", "prnewswire": "PR Newswire",
-                 "businesswire": "Business Wire", "google-blog": "Google blog",
-                 "finnhub-recommendation": "analyst ratings",
-                 "analyst-ratings": "analyst rating"}
+# ⚠️ Display names live in config (sources.yaml `source_labels`, watchlist.yaml
+# `label` per sector), not here. Hand-written copies in code meant adding a feed
+# or a sector silently degraded the answer — the same drift that had
+# `primary_sources` written out twice.
 
 # Questions about the stored history rather than one stock's move; query.py
 # answers those with SQL.
@@ -389,13 +386,18 @@ def _when(ts: datetime) -> str:
 
 
 def _source_label(source: str) -> str:
-    if source in SOURCE_LABELS:
-        return SOURCE_LABELS[source]
+    from swing.ingest.config import source_labels
+
+    label = source_labels().get(source)
+    if label:
+        return label
     return "company press release" if source.endswith("-ir") else source.title()
 
 
 def _sector(sector_etf: str | None) -> str | None:
-    return SECTOR_LABELS.get(sector_etf, sector_etf) if sector_etf else None
+    from swing.ingest.config import sector_label
+
+    return sector_label(sector_etf) if sector_etf else None
 
 
 def balanced_pcts(values: list[float], total: float) -> list[float]:

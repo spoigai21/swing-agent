@@ -150,3 +150,41 @@ class TestAQuietDayDoesNotClaimThereIsNoNews:
         from swing.interface import explain
 
         assert "primary_sources()" in inspect.getsource(explain.notable_company_news)
+
+
+class TestDisplayNamesComeFromConfig:
+    """Hand-written label dicts lived in explain.py, so adding a sector to
+    watchlist.yaml printed the bare ETF ticker at users, and adding a feed to
+    sources.yaml printed a title-cased id. Same drift as `primary_sources`
+    having two copies."""
+
+    def test_a_sector_label_comes_from_the_watchlist(self):
+        from swing.ingest.config import sector_label
+
+        assert sector_label("XLC") == "communication stocks"
+
+    def test_an_unknown_sector_degrades_to_its_name_then_its_ticker(self):
+        from swing.ingest.config import sector_label
+
+        assert sector_label("ZZZZ") == "ZZZZ"
+
+    def test_source_labels_come_from_sources_yaml(self):
+        from swing.ingest.config import source_labels
+
+        labels = source_labels()
+        assert labels["sec-edgar"] == "SEC filing"
+        assert labels["analyst-ratings"] == "analyst rating"
+
+    def test_an_unlisted_ir_feed_still_reads_well(self):
+        from swing.interface.explain import _source_label
+
+        assert _source_label("someco-ir") == "company press release"
+
+    def test_explain_no_longer_carries_its_own_tables(self):
+        import inspect
+
+        from swing.interface import explain
+
+        src = inspect.getsource(explain)
+        assert "SECTOR_LABELS = {" not in src
+        assert "SOURCE_LABELS = {" not in src
