@@ -149,3 +149,40 @@ class TestATransientBlipDoesNotEndTheNight:
         out = run(n=4, persist=False)
         assert len(seen) == 3, "a dead model must stop the run promptly"
         assert out["n"] == 1
+
+
+class TestPlaceboSpendsOneRequestPerCase:
+    """The last runner still retrying. Editing this file changes eval_hash and
+    resets the accumulated Gate 4 count, so it was left alone while abstention
+    and accuracy were fixed — and on 2026-09-24 it spent 6 requests on three
+    cases, each 503 retried twice, scoring nothing. Changed at the one moment it
+    was free, with the count already at 0.
+    """
+
+    def test_the_run_loop_disables_retries(self):
+        import inspect
+
+        from swing.eval import placebo
+
+        src = inspect.getsource(placebo.run)
+        assert "with batch_mode():" in src
+
+    def test_a_spent_quota_stops_the_run_immediately(self):
+        """Distinct from a 503 storm: waiting cannot help until midnight PT."""
+        import inspect
+
+        from swing.eval import placebo
+
+        src = inspect.getsource(placebo.run)
+        assert "daily_cap_reached()" in src
+        assert src.index("daily_cap_reached()") < src.index("MAX_CONSECUTIVE_FAILURES")
+
+    def test_the_failure_reason_is_named_not_guessed(self):
+        """"model unavailable (daily quota?)" guessed, and guessed wrong all of
+        2026-09-24 — every failure that day was a 503."""
+        from swing.eval.placebo import UNAVAILABLE_REASONS, _why_unavailable
+
+        assert set(UNAVAILABLE_REASONS) == {"invalid_key", "daily_cap", "unavailable"}
+        assert "overloaded" in UNAVAILABLE_REASONS["unavailable"]
+        assert "midnight PT" in UNAVAILABLE_REASONS["daily_cap"]
+        assert isinstance(_why_unavailable(), str)

@@ -477,7 +477,9 @@ def batch(date: str | None = None, limit: int | None = None) -> int:
             continue
         if out.get("verdict_reason") == "llm_error":
             # Usually the daily quota: nothing was stored, and the rest would fail too.
-            print(f"  {r['ticker']} {r['d']}: model unavailable (daily quota?); stopping")
+            from swing.eval.placebo import _why_unavailable
+
+            print(f"  {r['ticker']} {r['d']}: {_why_unavailable()}; stopping")
             counts["stopped"] = counts.get("stopped", 0) + 1
             break
         attr = out.get("attribution")

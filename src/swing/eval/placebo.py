@@ -153,6 +153,7 @@ def run(n: int = 30, seed: int = 0, persist: bool = True,
         resume: bool = True) -> dict:
     """Run up to n placebo cases, skipping any already scored on this version."""
     from swing.agent.graph import attribute_swing
+    from swing.agent.llm import batch_mode, daily_cap_reached, last_failure
 
     all_cases = build_cases(10_000, seed)
     if not all_cases:
@@ -169,45 +170,71 @@ def run(n: int = 30, seed: int = 0, persist: bool = True,
     confabulated = 0
     scored: list[PlaceboCase] = []
     failures = 0
-    for c in cases:
-        donor = relabel_timing(cached_clusters(c.donor_swing_id), c.swing_id)
-        out = attribute_swing(c.swing_id, run_kind="placebo", persist=persist,
-                              cluster_override=donor,
-                              verdict_reason_tag=f"placebo:{eval_hash()}")
-        if out.get("verdict_reason") == "llm_error":
-            # A failed call is not an abstention: scoring a request that never
-            # reached the model as perfect behaviour would flatter Gate 4.
-            # ⚠️ But do NOT end the night on one failure. 2026-09-16 lost 3 of
-            # 12 cases to a single "503 UNAVAILABLE ... high demand" blip, and
-            # at ~12 cases a night that is a quarter of the batch to a hiccup.
-            # Skip the case and carry on; stop only once failures are
-            # CONSECUTIVE, which is what a dead model or a spent quota looks
-            # like.
-            failures += 1
-            logger.warning("placebo: model call failed for swing %s (%d in a row)",
-                           c.swing_id, failures)
-            if failures >= MAX_CONSECUTIVE_FAILURES:
-                logger.warning("placebo stopping after %d consecutive failures", failures)
-                break
-            continue
-        failures = 0
-        attr = out.get("attribution")
-        c.verdict = attr.verdict if attr else "error"
-        c.n_candidates = len(attr.candidates) if attr else 0
-        scored.append(c)
-        if c.verdict != "unexplained":
-            confabulated += 1
-            logger.warning("CONFABULATION swing=%s donor=%s verdict=%s candidates=%s",
-                           c.swing_id, c.donor_swing_id, c.verdict, c.n_candidates)
-    if not scored:
-        return {"n": 0, "confabulated": 0, "rate": None, "done_on_this_version": len(done),
-                "note": "model unavailable (daily quota?); nothing scored"}
+    # ⚠️ One request per case. This was the last runner still retrying, because
+    # editing this file changes eval_hash and resets the accumulated Gate 4
+    # count — so it was left alone while abstention and accuracy were fixed. On
+    # 2026-09-24 that cost 6 requests for zero cases: three 503s, each retried
+    # twice. Changed at the one moment it was free, with the count already at 0.
+    with batch_mode():
+        for c in cases:
+            donor = relabel_timing(cached_clusters(c.donor_swing_id), c.swing_id)
+            out = attribute_swing(c.swing_id, run_kind="placebo", persist=persist,
+                                  cluster_override=donor,
+                                  verdict_reason_tag=f"placebo:{eval_hash()}")
+            if out.get("verdict_reason") == "llm_error":
+                # A failed call is not an abstention: scoring a request that never
+                # reached the model as perfect behaviour would flatter Gate 4.
+                # ⚠️ But do NOT end the night on one failure. 2026-09-16 lost 3 of
+                # 12 cases to a single "503 UNAVAILABLE ... high demand" blip, and
+                # at ~12 cases a night that is a quarter of the batch to a hiccup.
+                # Skip the case and carry on; stop only once failures are
+                # CONSECUTIVE, which is what a dead model or a spent quota looks
+                # like.
+                failures += 1
+                logger.warning("placebo: model call failed for swing %s (%d in a row, %s)",
+                               c.swing_id, failures, last_failure() or "unknown")
+                if daily_cap_reached():
+                    logger.warning("placebo: the day's free-tier requests are gone; "
+                                   "%d case(s) left for tomorrow", len(cases) - len(scored))
+                    break
+                if failures >= MAX_CONSECUTIVE_FAILURES:
+                    logger.warning("placebo stopping after %d consecutive failures (%s)",
+                                   failures, last_failure() or "unknown")
+                    break
+                continue
+            failures = 0
+            attr = out.get("attribution")
+            c.verdict = attr.verdict if attr else "error"
+            c.n_candidates = len(attr.candidates) if attr else 0
+            scored.append(c)
+            if c.verdict != "unexplained":
+                confabulated += 1
+                logger.warning("CONFABULATION swing=%s donor=%s verdict=%s candidates=%s",
+                               c.swing_id, c.donor_swing_id, c.verdict, c.n_candidates)
+        if not scored:
+            return {"n": 0, "confabulated": 0, "rate": None, "done_on_this_version": len(done),
+                    "note": f"nothing scored: {_why_unavailable()}"}
     rate = confabulated / len(scored)
     logger.info("placebo: %d cases this run, %d confabulated (%.1f%%)",
                 len(scored), confabulated, rate * 100)
     return {"n": len(scored), "confabulated": confabulated, "rate": rate,
             "cases": scored, "done_on_this_version": len(done) + len(scored),
             "eligible_total": len(all_cases)}
+
+
+#: Why the model did not answer, in terms a reader can act on. "(daily quota?)"
+#: guessed, and guessed wrong all of 2026-09-24: every failure was a 503.
+UNAVAILABLE_REASONS = {
+    "invalid_key": "Google rejected the API key — run `swing key`",
+    "daily_cap": "the day's 20 free-tier requests are gone; they reset at midnight PT",
+    "unavailable": "the model is overloaded (503 high demand); try again later",
+}
+
+
+def _why_unavailable() -> str:
+    from swing.agent.llm import last_failure
+
+    return UNAVAILABLE_REASONS.get(last_failure() or "", "the model did not answer")
 
 
 def cumulative() -> dict:

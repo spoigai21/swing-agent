@@ -3010,3 +3010,25 @@ Robinhood itself is not an option: its in-app news is licensed from Benzinga,
 Dow Jones and others through an authenticated app API, so reading it would mean
 using account credentials against their terms. The publishers behind it are
 already here — Benzinga included, and measured at §16.57.
+
+### §16.59 The last runner still burning three requests per case
+
+2026-09-24 spent the whole 20-request day and scored nothing. Twelve went to
+the eval jobs before anyone looked; the remaining eight went to placebo, which
+turned three cases into six requests by retrying each 503 twice.
+
+`batch_mode` (§16.32) had been applied to abstention and accuracy and
+deliberately NOT to placebo, because editing this file changes `eval_hash` and
+resets the accumulated Gate 4 count. That reasoning was right when the count was
+38. It was wrong once the count was **0** — every config change of 2026-09-23
+had already reset it, which made this the one moment the edit was free.
+
+Also fixed: `run` now stops immediately on a daily cap (waiting cannot help
+until midnight PT) while continuing past a 503 storm, and reports WHICH it was.
+The old summary line guessed — "model unavailable (daily quota?)" — and guessed
+wrong all day, since every failure was a 503.
+
+⚠️ The lesson generalises: a change gated on "it would reset the measurement" is
+free exactly when the measurement is already zero, and that window closes as
+soon as cases accumulate. Worth checking for at the start of a rebuild rather
+than deferring again.
